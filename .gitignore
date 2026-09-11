@@ -1,0 +1,38 @@
+# secrets — never commit
+.env
+*.key
+*.pem
+
+# run artefacts: traces contain full prompts and are large
+traces/
+results/
+*.db
+*.sqlite
+*.sqlite3
+.sandbox/
+
+# models
+models/
+*.safetensors
+*.gguf
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/

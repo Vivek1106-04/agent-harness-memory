@@ -1,0 +1,50 @@
+# Experiment 1 cell: VectorMemory at an 8k context budget.
+#
+# One YAML fully describes a run. Swapping a component is a config edit here, never an
+# import edit in harness source. To change condition, change `memory.type` — nothing else.
+#
+# Unknown keys are an error, not a warning: a typo'd component name must fail loudly
+# rather than silently run the wrong experiment.
+
+run:
+  seed: 1
+  max_steps: 35
+  run_id_prefix: exp1_vector_8k
+
+planner:
+  type: react
+  max_steps: 35
+
+memory:
+  type: vector          # noop | oracle | vector | episodic | graph | hybrid
+  k: 5
+
+context:
+  type: budgeted        # budgeted | full
+  token_budget: 8000    # the harness budget, imposed independently of model capability
+
+tools:
+  type: local           # local | mock
+  sandbox_root: ./.sandbox
+  timeout_s: 10
+  max_output_chars: 4000
+
+evaluator:
+  type: checker         # checker | always_fail
+
+# Frozen across every condition. Pin the revision, not just the name.
+embedding:
+  model: Qwen/Qwen3-Embedding-0.6B
+  revision: PIN_ME
+
+llm:
+  provider: local       # local | openai_compatible
+  base_url: ${HARNESS_LLM_BASE_URL}
+  model: PIN_ME
+  revision: PIN_ME
+  max_output_tokens: 300   # cost lever: 500 -> 300 takes output cost from ~$117 to ~$69
+  temperature: 0.0
+
+limits:
+  max_tokens_per_run: 500000
+  max_spend_usd: 25.0      # global kill-switch, on from day one
