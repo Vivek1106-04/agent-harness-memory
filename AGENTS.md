@@ -66,6 +66,9 @@ variables only. The trace redactor strips anything matching a key pattern before
 
 ## Code style
 
+- **ASCII only.** Code, comments, docstrings, strings and commit messages contain ASCII
+  characters only. No emoji, em dashes, section signs, arrows or math glyphs. Write `-`,
+  `->`, `>=`, `section 5`, `WARNING:` instead. Prose files (`*.md`) are unaffected.
 - Python 3.12. Full type annotations on everything in `src/harness/`; `mypy` is strict there.
 - `ruff` for lint and format, default line length 100. Do not hand-format.
 - Functions under 50 lines, files under 800. Split rather than nest.

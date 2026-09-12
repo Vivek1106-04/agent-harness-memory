@@ -41,6 +41,10 @@ packages = ["src/harness"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# ruff 0.16 formats python blocks inside markdown. SPEC.md and CONTRIBUTING.md quote the
+# frozen contract deliberately; reformatting them would make the spec drift from the code
+# it specifies for no reason.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "S", "SIM", "RUF"]

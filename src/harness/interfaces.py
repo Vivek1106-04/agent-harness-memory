@@ -83,7 +83,7 @@ class ToolRuntime(ABC):
         """Execute an action. Errors become Observations; nothing raises to the loop.
 
         Treat every action as hostile input: allowlist the tool, validate arguments, and
-        confine every filesystem operation to the per-run sandbox. See SECURITY.md §5.
+        confine every filesystem operation to the per-run sandbox. See SECURITY.md section 5.
         """
         ...
 
@@ -102,7 +102,7 @@ class Evaluator(ABC):
 class LLMClient(ABC):
     """Abstracts local vLLM and OpenAI-compatible hosted endpoints.
 
-    Thin by design — about sixty lines beats a framework dependency, and it keeps the
+    Thin by design - about sixty lines beats a framework dependency, and it keeps the
     "everything is an interface" property honest.
     """
 

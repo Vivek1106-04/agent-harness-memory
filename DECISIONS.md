@@ -82,6 +82,71 @@ proposal needs correcting.
 
 ---
 
+## Week 2 - spine, config, trace, results
+
+### 2026-09-12 · context · token counting is an approximation until week 4
+**Owner:** Vivek
+**What did not fit:** the budget must bind deterministically on every machine, and a real
+tokenizer means a model download, a revision to pin, and network in unit tests.
+**What we changed:** `harness/tokens.py` counts ceil(chars / 4). A context manager takes the
+counter as a constructor argument, so `LLMClient.count_tokens` is substituted for the real
+runs without touching the eviction logic.
+**What it cost:** the budget is approximate during weeks 2-3. Numbers reported from a sweep
+must use the model counter, not this one.
+**Reportable?** no - implementation detail, but it is a measurement caveat worth stating.
+
+### 2026-09-12 · context · FullContextManager declares an unbounded budget
+**Owner:** Vivek
+**What did not fit:** the contract asks that a manager never exceed its declared budget. A
+"keep everything" manager handed an 8k budget would violate that on every call.
+**What we changed:** it declares `token_budget = sys.maxsize` and ignores a requested
+budget rather than accepting one it will not honour. It is the "uncapped" cell of
+Experiment 2, so this is the honest reading rather than a workaround.
+**Reportable?** yes - the alternative (silently ignoring a declared budget) is exactly the
+defect that would corrupt the budget sweep.
+
+### 2026-09-12 · config · component blocks accept extra keys, everything else forbids them
+**Owner:** Vivek
+**What did not fit:** SPEC section 7 says unknown keys are an error, but component blocks
+carry implementation-specific keys (`hops`, `backend`, `k`) that the harness cannot know.
+**What we changed:** every fixed block (`run`, `llm`, `embedding`, `limits`) forbids extras.
+Component blocks allow them and pass them to the named component, which refuses an argument
+it does not accept. A typo still fails loudly, one layer later.
+**Reportable?** no.
+
+### 2026-09-12 · config · the config hash excludes `llm.base_url`
+**Owner:** Vivek
+**What did not fit:** hashing the whole config gives the same experiment two identities when
+run against two endpoints, which breaks resume and splits results across machines.
+**What we changed:** `base_url` is excluded from the hash. Model identity is carried by
+`llm.model` and `llm.revision`, which are hashed.
+**Reportable?** yes - provenance argument.
+
+### 2026-09-12 · runtime · redaction happens at emit time, in one place
+**Owner:** Vivek
+**What we changed:** `TraceBus.emit` redacts every payload before the sink sees it, using the
+same detector that refuses credentials found in config files. Hex runs are exempt, because
+config hashes and commit ids are hex and are recorded on purpose.
+**Reportable?** no - SECURITY.md section 1 made this a requirement, not a choice.
+
+### 2026-09-12 · runner · run_id is the idempotency key and is derived, not generated
+**Owner:** Vivek
+**What we changed:** `build_run_id(prefix, condition, task_id, seed, token_budget)` is
+deterministic, and the results table makes it the primary key with `INSERT OR IGNORE`. A
+restart after a crash skips completed cells; a retry cannot write a second row.
+**What it cost:** a cell that raises is deliberately left unrecorded so a rerun retries it,
+which means the summary, not the database, is where failures are visible.
+**Reportable?** no.
+
+### 2026-09-12 · repo · ASCII only in source, and Python pinned to 3.12
+**Owner:** Vivek
+**What we changed:** source files carry ASCII characters only (AGENTS.md code style), and
+`.python-version` pins 3.12 so that the interpreter matches SPEC section 1 rather than
+whatever uv finds on a contributor's machine.
+**Reportable?** no.
+
+---
+
 ## Open questions to resolve by the week-2 freeze
 
 - Does `MemoryItem` need a `timestamp` distinct from the step index in `provenance`?
