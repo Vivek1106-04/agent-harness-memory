@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from harness.interfaces import ToolRuntime
-from harness.types import Action, Observation
+from harness.types import Action, Observation, TaskSpec
 
 #: Every tool runtime in this study supports at least this tool, taking a `path` argument
 #: relative to the sandbox root. It is what the path-confinement test exercises.
@@ -27,12 +27,31 @@ ESCAPING_PATHS = [
 ]
 
 
+def _task() -> TaskSpec:
+    return TaskSpec(
+        task_id="contract-task",
+        family="multihop_qa",
+        fact_dependency_graph={"answer": ["fact_a", "fact_b"]},
+        recall_distance=12,
+        distractor_density=0.5,
+        horizon=20,
+        entity_pool=["alpha", "beta", "gamma", "delta"],
+        seed=1,
+    )
+
+
 class ToolRuntimeContract:
     runtime_factory: Callable[[Path], ToolRuntime]
 
     @pytest.fixture
     def runtime(self, tmp_path: Path) -> ToolRuntime:
         return type(self).runtime_factory(tmp_path)
+
+    def test_prepare_binds_a_task_without_raising(self, runtime: ToolRuntime) -> None:
+        """The task environment reaches the tool layer through `prepare` and nowhere else."""
+        runtime.prepare(_task())
+        observation = runtime.execute(Action(tool_name=READ_TOOL, arguments={"path": "x.txt"}), 0)
+        assert isinstance(observation, Observation)
 
     def test_unknown_tool_returns_error_observation_not_exception(
         self, runtime: ToolRuntime

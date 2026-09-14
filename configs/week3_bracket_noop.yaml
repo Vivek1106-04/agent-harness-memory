@@ -1,0 +1,54 @@
+# Week 3 gate, floor cell: NoOpMemory at an 8k context budget.
+#
+# The floor of the measurement bracket. Paired with configs/week3_bracket_oracle.yaml,
+# which differs in exactly one line (`memory.type`) - that is the point of the pairing:
+# every other control is identical, so the spread between the two cells is attributable to
+# the memory layer and to nothing else.
+#
+# NOT RUNNABLE YET. Two things are missing and both are known:
+#   1. `planner.type: react` lands in week 4. `single_step` cannot read documents, so it
+#      cannot produce a bracket. The registry refuses an unknown name loudly, by design.
+#   2. The gate needs a model endpoint with >= 128k context (PLAN.md week 3, question 3).
+# The cell is written down now, before any data is seen, so the comparison cannot be
+# chosen after the fact.
+
+run:
+  seed: 1
+  max_steps: 35
+  run_id_prefix: week3_bracket_noop
+
+planner:
+  type: react
+  max_steps: 35
+
+memory:
+  type: noop
+
+context:
+  type: budgeted
+  token_budget: 8000
+
+tools:
+  type: task_docs
+  sandbox_root: ./.sandbox
+  max_output_chars: 4000
+
+evaluator:
+  type: checker
+
+# Frozen across every condition. Pin the revision, not just the name.
+embedding:
+  model: Qwen/Qwen3-Embedding-0.6B
+  revision: PIN_ME
+
+llm:
+  provider: local
+  base_url: ${HARNESS_LLM_BASE_URL}
+  model: PIN_ME
+  revision: PIN_ME
+  max_output_tokens: 300
+  temperature: 0.0
+
+limits:
+  max_tokens_per_run: 500000
+  max_spend_usd: 25.0

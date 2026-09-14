@@ -90,9 +90,19 @@ cheapest available control on the effort confound — the most serious threat in
 Week 2 spine in place: payload types, five interfaces, registry with entry-point discovery,
 all five conformance suites, one trivial implementation each for planner, context, tools and
 evaluator, config schema with hashing, trace bus with redaction, SQLite results store and a
-resumable runner. 101 tests, 100% coverage on `src/harness/`.
+resumable runner.
 
-Not yet implemented: any memory provider, the ReAct planner, the budgeted context manager,
-the local tool runtime, the checker evaluator, the task generator, and the LLM adapters.
+Week 3 instruments in place: task generator v1 (`multihop_qa`, a pure function of the spec,
+emitting the task, its checker and its per-step gold labels), the forces-recall assertion,
+`NoOpMemory` and `OracleMemory`, `BudgetedContextManager`, the task-document tool runtime,
+a minimal `CheckerEvaluator`, and the runtime loop that runs one task through all five
+layers. 220 tests, 100% coverage on `src/harness/`.
+
+Not yet implemented: any memory provider under test, the ReAct planner, the local tool
+runtime, and the LLM adapters.
+
+The week-3 gate itself is **not yet answered** - it needs a looping planner and a model
+endpoint. Questions, method and decision rules are recorded in
+[docs/sweep-memos/week3.md](docs/sweep-memos/week3.md) before any data is seen.
 
 `PLAN.md` is the schedule; the next hard gate is **interfaces frozen, 23 September 2026**.
