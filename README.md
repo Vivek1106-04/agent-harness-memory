@@ -87,5 +87,12 @@ cheapest available control on the effort confound — the most serious threat in
 
 ## Status
 
-Pre-week-1. Nothing is implemented yet. `PLAN.md` is the schedule; the next hard gate is
-**interfaces frozen, 23 September 2026**.
+Week 2 spine in place: payload types, five interfaces, registry with entry-point discovery,
+all five conformance suites, one trivial implementation each for planner, context, tools and
+evaluator, config schema with hashing, trace bus with redaction, SQLite results store and a
+resumable runner. 101 tests, 100% coverage on `src/harness/`.
+
+Not yet implemented: any memory provider, the ReAct planner, the budgeted context manager,
+the local tool runtime, the checker evaluator, the task generator, and the LLM adapters.
+
+`PLAN.md` is the schedule; the next hard gate is **interfaces frozen, 23 September 2026**.

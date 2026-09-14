@@ -8,12 +8,13 @@ If a swap requires touching an import, a factory function, or a match statement 
 harness source, the component is not really substitutable and the premise is rhetoric.
 
 SECURITY: entry-point discovery imports third-party code with your privileges. The
-conformance suite is a specification, not a sandbox — passing it proves a component honours
-the interface, never that it is safe. See SECURITY.md §7.
+conformance suite is a specification, not a sandbox - passing it proves a component honours
+the interface, never that it is safe. See SECURITY.md section 7.
 """
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable
 from importlib.metadata import entry_points
 from typing import Any, TypeVar
@@ -38,9 +39,8 @@ def register(layer: str, *, name: str) -> Callable[[type[T]], type[T]]:
     def decorator(cls: type[T]) -> type[T]:
         existing = _REGISTRY[layer].get(name)
         if existing is not None and existing is not cls:
-            raise RegistryError(
-                f"{layer}/{name} already registered by {existing.__module__}.{existing.__qualname__}"
-            )
+            owner = f"{existing.__module__}.{existing.__qualname__}"
+            raise RegistryError(f"{layer}/{name} already registered by {owner}")
         _REGISTRY[layer][name] = cls
         return cls
 
@@ -58,9 +58,10 @@ def discover() -> None:
     global _DISCOVERED
     if _DISCOVERED:
         return
+    importlib.import_module("harness.components")  # registers the built-ins
     for layer in LAYERS:
         for ep in entry_points(group=f"harness.{layer}"):
-            cls = ep.load()  # executes third-party code — see SECURITY.md §7
+            cls = ep.load()  # executes third-party code - see SECURITY.md section 7
             register(layer, name=ep.name)(cls)
     _DISCOVERED = True
 

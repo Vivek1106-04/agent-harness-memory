@@ -1,4 +1,4 @@
-"""MemoryProviderContract — the admission criterion for the memory layer.
+"""MemoryProviderContract - the admission criterion for the memory layer.
 
 Subclass it, set `provider_factory`, inherit the tests. An implementation without a
 contract subclass is not admissible and will not be merged.
@@ -64,9 +64,7 @@ class MemoryProviderContract:
             provider.write(_item(f"fact number {i}", step=i))
         assert len(provider.retrieve(MemoryQuery(text="fact", k=5))) <= 5
 
-    def test_results_are_deterministic_for_identical_input(
-        self, provider: MemoryProvider
-    ) -> None:
+    def test_results_are_deterministic_for_identical_input(self, provider: MemoryProvider) -> None:
         """Nondeterminism here is indistinguishable from a real effect in the results."""
         for i in range(10):
             provider.write(_item(f"fact number {i}", step=i))
