@@ -74,6 +74,11 @@ class TraceBus:
         self._run_id = run_id
         self._sink = sink
 
+    @property
+    def run_id(self) -> str:
+        """The run this bus stamps. Layers use it to build provenance strings."""
+        return self._run_id
+
     def emit(
         self,
         layer: str,

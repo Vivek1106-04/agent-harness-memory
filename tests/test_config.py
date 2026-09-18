@@ -201,3 +201,13 @@ def test_hash_changes_when_a_component_changes(tmp_path: Path) -> None:
 
     # Assert
     assert swapped != baseline
+
+
+SHIPPED_CONFIGS = sorted(Path(__file__).resolve().parents[1].joinpath("configs").glob("*.yaml"))
+
+
+@pytest.mark.parametrize("path", SHIPPED_CONFIGS, ids=lambda path: path.name)
+def test_every_shipped_config_validates(path: Path) -> None:
+    """A config in the repo is a declared experiment cell. A typo in one is a cell that
+    dies hours into a sweep rather than at load."""
+    assert config_hash(load_config(path, env=ENV))

@@ -145,6 +145,73 @@ which means the summary, not the database, is where failures are visible.
 whatever uv finds on a contributor's machine.
 **Reportable?** no.
 
+### 2026-09-14 · memory + tools · `prepare(TaskSpec)` on two interfaces, defaulting to no-op
+**Owner:** Vivek
+**What did not fit:** `OracleMemory` is the ceiling of the bracket, and a ceiling has to know
+what perfect retrieval means. `TaskDocumentRuntime` has to know which documents exist. Both
+are per-run facts, so neither fits a constructor argument set from a static config, and
+threading a task object through the registry would have put a run-specific object into
+component construction.
+**What we changed:** `MemoryProvider.prepare(task)` and `ToolRuntime.prepare(task)`, both
+defaulting to no-op, called once per run by the loop after `reset`. Generation is a pure
+function of the spec, so each component re-derives what it needs without a side channel.
+**What it cost:** an interface addition eight days before the freeze, and a rule that has to
+be enforced by review: a memory implementation *under test* that reads gold labels in
+`prepare` is cheating by construction. Baselines only.
+**Reportable?** yes - "where does the task environment enter a layered agent" is exactly the
+kind of seam this study is meant to document.
+
+### 2026-09-14 · memory · the contract suite gained a `stores_writes` flag
+**Owner:** Vivek
+**What did not fit:** `MemoryProviderContract.test_write_then_retrieve_returns_item` cannot
+hold for `NoOpMemory`, which stores nothing by design and is not a memory that merely
+performs badly.
+**What we changed:** the suite declares `stores_writes = True` by default; `NoOpMemory` sets
+it False and the same test then asserts retrieval stays empty. Every other test in the suite
+applies unchanged to both.
+**What it cost:** the contract is now slightly weaker as a specification - a lazy
+implementation could claim the exemption. Review catches that; the alternative was either an
+inadmissible baseline or a contract nobody can satisfy honestly.
+**Reportable?** yes - the trivial implementation revealed the contract was a guess, which is
+the argument for building two implementations per layer in the first place.
+
+### 2026-09-14 · tasks · the generator derives document geometry from the horizon
+**Owner:** Vivek
+**What did not fit:** `recall_distance`, `distractor_density` and `horizon` can contradict
+each other - a graph too large for the horizon, or a density that leaves no room.
+**What we changed:** documents = `horizon - 1`; required facts occupy a contiguous block
+ending `recall_distance` documents before the answer; everything else is a distractor, and
+`distractor_density` acts as a *floor* on the distractor fraction. Any contradiction raises
+`TaskGenerationError` rather than generating a degraded task.
+**What it cost:** the achieved density is usually above the requested one. A degraded task
+would have been worse: it produces plausible-looking wrong numbers.
+**Reportable?** no.
+
+### 2026-09-14 · memory · an unprepared `OracleMemory` falls back to total recall
+**Owner:** Vivek
+**What did not fit:** with no task bound, the oracle has no notion of gold and would return
+nothing - failing its own contract suite, which knows nothing about tasks.
+**What we changed:** unprepared, it returns the most recently written items, newest first.
+Still an upper bound on any real memory, and in a run it is always prepared.
+**Reportable?** no.
+
+### 2026-09-14 · context · a budget too small for the instructions raises
+**Owner:** Muni
+**What did not fit:** system instructions and the goal are never evictable, so a budget
+smaller than the two of them cannot be honoured.
+**What we changed:** `BudgetTooSmallError` at assembly time. Truncating the instructions
+would quietly run a different experiment than the one written down.
+**Reportable?** no.
+
+### 2026-09-14 · evaluator · `CheckerEvaluator` landed a week early, in minimal form
+**Owner:** Vivek (Jugal owns the layer and hardens it in week 4)
+**What did not fit:** the forces-recall assertion needs a verdict to reject a task on, and
+`AlwaysFailEvaluator` rejects everything. Week 3 could not be built without a real checker.
+**What we changed:** a minimal checker for `multihop_qa` only: digit-run match against the
+answer the generator resolved, partial credit by required facts surfaced. Week 4 extends it
+to the remaining families.
+**Reportable?** no - schedule note, recorded so the week-4 owner inherits it deliberately.
+
 ---
 
 ## Open questions to resolve by the week-2 freeze

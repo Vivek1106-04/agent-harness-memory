@@ -14,15 +14,32 @@ from collections.abc import Callable
 import pytest
 
 from harness.interfaces import MemoryProvider
-from harness.types import MemoryItem, MemoryQuery
+from harness.types import MemoryItem, MemoryQuery, TaskSpec
 
 
 def _item(content: str, step: int = 0, kind: str = "episodic") -> MemoryItem:
     return MemoryItem(content=content, score=1.0, provenance=f"test:{step}", kind=kind)
 
 
+def _task() -> TaskSpec:
+    return TaskSpec(
+        task_id="contract-task",
+        family="multihop_qa",
+        fact_dependency_graph={"answer": ["fact_a", "fact_b"]},
+        recall_distance=12,
+        distractor_density=0.5,
+        horizon=20,
+        entity_pool=["alpha", "beta", "gamma", "delta"],
+        seed=1,
+    )
+
+
 class MemoryProviderContract:
     provider_factory: Callable[[], MemoryProvider]
+
+    #: `NoOpMemory` stores nothing by design. Rather than let it claim to be a memory that
+    #: merely performs badly, it declares the fact and the storage tests invert.
+    stores_writes: bool = True
 
     @pytest.fixture
     def provider(self) -> MemoryProvider:
@@ -36,7 +53,10 @@ class MemoryProviderContract:
         results = provider.retrieve(MemoryQuery(text="safe combination", k=5))
 
         # Assert
-        assert any("4271" in r.content for r in results)
+        if type(self).stores_writes:
+            assert any("4271" in r.content for r in results)
+        else:
+            assert results == []
 
     def test_retrieve_on_empty_returns_empty_list(self, provider: MemoryProvider) -> None:
         assert provider.retrieve(MemoryQuery(text="anything", k=5)) == []
@@ -45,6 +65,12 @@ class MemoryProviderContract:
         provider.write(_item("something memorable"))
         provider.reset()
         assert provider.retrieve(MemoryQuery(text="something memorable", k=5)) == []
+
+    def test_prepare_binds_a_task_without_raising(self, provider: MemoryProvider) -> None:
+        """Every provider is offered the task; all but the baselines ignore it."""
+        provider.prepare(_task())
+        provider.write(_item("the safe combination is 4271"))
+        provider.retrieve(MemoryQuery(text="safe combination", k=5))  # must not raise
 
     def test_unsupported_query_fields_do_not_crash(self, provider: MemoryProvider) -> None:
         """A vector memory receiving hops=3 ignores it. One that raises is inadmissible."""

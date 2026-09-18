@@ -22,7 +22,7 @@ def _task() -> TaskSpec:
         recall_distance=12,
         distractor_density=0.5,
         horizon=20,
-        entity_pool=["alpha", "beta"],
+        entity_pool=["alpha", "beta", "gamma", "delta"],
         seed=1,
     )
 

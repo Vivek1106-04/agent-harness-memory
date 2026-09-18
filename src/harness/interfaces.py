@@ -33,6 +33,18 @@ class MemoryProvider(ABC):
 
     capabilities: frozenset[str] = frozenset()
 
+    def prepare(self, task: TaskSpec) -> None:  # noqa: B027 - a no-op default is the point
+        """Bind the provider to the task about to run. Default: ignore it.
+
+        The runtime calls this once per run, after `reset`. It exists for the measurement
+        baselines: `OracleMemory` is the perfect-retrieval ceiling, and a ceiling has to
+        know what perfect means. Task generation is a pure function of the spec, so no side
+        channel to the generator is needed - the provider re-derives the task itself.
+
+        A memory implementation under test that reads gold labels here is cheating by
+        construction. Baselines only. See DECISIONS.md.
+        """
+
     @abstractmethod
     def write(self, item: MemoryItem) -> None: ...
 
@@ -78,6 +90,14 @@ class ContextManager(ABC):
 
 
 class ToolRuntime(ABC):
+    def prepare(self, task: TaskSpec) -> None:  # noqa: B027 - a no-op default is the point
+        """Bind the runtime to the task about to run. Default: ignore it.
+
+        The task environment - which documents exist and what they say - reaches the tool
+        layer through here, and through nothing else. The runtime re-derives it from the
+        spec, so no runtime object has to be threaded through config.
+        """
+
     @abstractmethod
     def execute(self, action: Action, step: int) -> Observation:
         """Execute an action. Errors become Observations; nothing raises to the loop.
