@@ -54,6 +54,10 @@ class RunConfig(_Strict):
     seed: int
     max_steps: int = Field(gt=0)
     run_id_prefix: str
+    #: How many items the loop asks the memory layer for each step. It belongs to the run,
+    #: not to a provider: every condition must be measured under the same retrieval budget
+    #: or the comparison is between budgets rather than between memories.
+    retrieval_k: int = Field(default=5, gt=0)
 
 
 class EmbeddingConfig(_Strict):
@@ -62,12 +66,22 @@ class EmbeddingConfig(_Strict):
 
 
 class LLMConfig(_Strict):
+    """`api_key_env` names the environment variable holding the key. It is never the key.
+
+    A hosted endpoint names one and the client refuses to start if it is unset; a local
+    vLLM server leaves it null and sends no Authorization header. The name is not a secret,
+    so it is hashed into the config identity along with everything else.
+    """
+
     provider: Literal["local", "openai_compatible"]
     base_url: str
     model: str
     revision: str
     max_output_tokens: int = Field(gt=0)
     temperature: float = Field(ge=0.0)
+    api_key_env: str | None = None
+    timeout_s: float = Field(default=120.0, gt=0.0)
+    max_attempts: int = Field(default=4, ge=1)
 
 
 class LimitsConfig(_Strict):
@@ -75,8 +89,25 @@ class LimitsConfig(_Strict):
     max_spend_usd: float = Field(ge=0.0)
 
 
+class SuiteConfig(_Strict):
+    """The task set, described rather than listed.
+
+    It lives in the config, and therefore in the config hash, so that "which tasks was this
+    row scored against" is answerable from the results row alone. Generation is pure, so
+    the description is enough to re-derive the set exactly.
+    """
+
+    count: int = Field(gt=0)
+    chain_length: int = Field(ge=2)
+    recall_distance: int = Field(ge=1)
+    distractor_density: float = Field(ge=0.0, lt=1.0)
+    horizon: int = Field(ge=2)
+    seed: int
+
+
 class HarnessConfig(_Strict):
     run: RunConfig
+    suite: SuiteConfig
     planner: ComponentConfig
     memory: ComponentConfig
     context: ComponentConfig

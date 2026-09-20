@@ -214,11 +214,96 @@ to the remaining families.
 
 ---
 
+## Week 4 - the model endpoint and the first two memories under test
+
+### 2026-09-20 · planner · `ReActPlanner` pulled forward into the week-3 gate
+**Owner:** Ansh (implemented early by Vivek; Ansh owns the layer)
+**What did not fit:** the week-3 gate needs a planner that can read a document across many
+steps, and `SingleStepPlanner` answers in one call. The gate therefore depended on a
+week-4 deliverable.
+**What we changed:** built it now rather than deferring the gate by a week. The scheduling
+defect stays recorded in `docs/sweep-memos/week3.md` rather than being silently absorbed.
+**Reportable?** no - schedule note.
+
+### 2026-09-20 · planner · an unparseable reply becomes an action, not a stop
+**Owner:** Vivek
+**What did not fit:** `Planner.next_action` returns an `Action` or `None`, and `None`
+terminates the run. A single malformed reply would therefore throw away an otherwise good
+run, which at 1,440 runs is a measurable loss of data and money.
+**What we changed:** an unparseable reply becomes `Action(tool_name="invalid_action")`. No
+runtime implements that tool, so the tool layer returns its ordinary unknown-tool error,
+the error enters the history, and the model reads its own mistake on the next step. A cap
+of `max_parse_failures` consecutive failures still terminates, so a model stuck in a
+formatting loop cannot spend all 35 steps failing the same way.
+**Reportable?** yes - "how a modular harness should absorb malformed model output" is a
+finding about the planner interface, not an implementation detail.
+
+### 2026-09-20 · context · the action protocol lives in the system text, not the planner
+**Owner:** Muni (context layer) / Vivek
+**What did not fit:** a ReAct planner has to tell the model how to write an action, but a
+planner that appended its own instructions after assembly would push the window past
+`token_budget` and the Experiment 2 guarantee would stop being true.
+**What we changed:** `ACTION_PROTOCOL` is part of `prompts.SYSTEM_INSTRUCTIONS`, so the
+context manager counts it against the budget like any other protected segment. The cost is
+that `SingleStepPlanner` now sees protocol text it does not use; it is a baseline, and the
+checker matches digit runs, so a JSON-wrapped answer still scores.
+**Reportable?** yes - where the layer boundary bent, and why the budget won.
+
+### 2026-09-20 · llm · one adapter for both providers, and an approximate tokenizer
+**Owner:** Vivek
+**What did not fit:** PLAN.md week 1 asked for a local vLLM adapter *and* an
+OpenAI-compatible adapter. Both speak the same chat-completions shape, so two adapters
+would have been two things to keep in step for no measured difference.
+**What we changed:** one `HttpLLMClient`; `provider` selects a base URL and whether a key
+is sent. `count_tokens` stays the arithmetic approximation rather than the provider's
+tokenizer - a provider-specific tokenizer would make the 8k cell mean one thing on Gemini
+and another on a local model, and Experiment 2 would be comparing two different budgets.
+**Reportable?** yes - the budget is a harness property, not a model property, and this is
+where that is enforced.
+
+### 2026-09-20 · memory · `EpisodicMemory` reads its clock from `provenance`
+**Owner:** Muni / Vivek
+**What did not fit:** the layer honours `MemoryQuery.time_range`, but `MemoryItem` has no
+timestamp field and `types.py` is frozen. This is the open question recorded at the week-2
+freeze, now answered by an implementation rather than by speculation.
+**What we changed:** the step is parsed from the `"<run_id>:<step>"` provenance string the
+runtime already writes, falling back to write order. No payload change. Wall-clock time is
+deliberately not used: the evaluator must return the same verdict for the same trace in a
+different timezone.
+**Reportable?** yes - a wide `MemoryQuery` met a narrow `MemoryItem`, and the asymmetry is
+a real finding about payload design for substitutable memory.
+
+### 2026-09-20 · build · components are wired by parameter name, not by type
+**Owner:** Vivek
+**What did not fit:** components need things a YAML file cannot hold - an HTTP client, an
+encoder, a sandbox path. Resolving that with `if config.memory == "vector"` would have
+made the substitutability claim false (AGENTS.md rule 4).
+**What we changed:** the builder offers a fixed set of services and each component
+receives the ones it names in its constructor signature. Config values win over services.
+The rule is generic, so a third-party component installed through an entry point is wired
+by it with no change to harness source.
+**Reportable?** yes - this is the substitutability claim surviving contact with dependency
+injection, which is exactly the kind of place the claim usually dies.
+
+### 2026-09-20 · tools · `LocalToolRuntime` refuses non-regular files instead of timing out
+**Owner:** Vivek
+**What did not fit:** PLAN.md asks for timeouts. For filesystem reads the real hazard is a
+FIFO under the sandbox root, which blocks forever - and no timeout on the loop can
+interrupt a blocking read that has already started.
+**What we changed:** only regular files are opened, and reads stop at `max_read_bytes`. The
+`timeout_s` key was removed from `configs/exp1_vector_8k.yaml` rather than left as a
+setting that does nothing. A timeout returns when a tool can actually block, which is when
+a shell tool lands - and no shell tool is in scope.
+**Reportable?** no.
+
+---
+
 ## Open questions to resolve by the week-2 freeze
 
-- Does `MemoryItem` need a `timestamp` distinct from the step index in `provenance`?
-  Episodic memory may want wall-clock ordering; adding a field later is allowed, removing
-  one is not, so decide before the freeze.
+- ~~Does `MemoryItem` need a `timestamp` distinct from the step index in `provenance`?~~
+  **Answered 2026-09-20: no.** `EpisodicMemory` parses the step out of `provenance` and
+  honours `time_range` without a payload change. Wall-clock ordering was rejected outright
+  - it would make the evaluator's verdict depend on the machine's timezone.
 - Should `capabilities` be advisory or enforced? Currently advisory — the contract suite
   only asserts unsupported fields do not crash, not that declared capabilities work.
 - Does the trace bus need backpressure at 117,600 calls, or is append-only JSONL enough?

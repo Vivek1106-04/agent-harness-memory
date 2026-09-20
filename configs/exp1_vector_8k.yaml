@@ -1,7 +1,7 @@
 # Experiment 1 cell: VectorMemory at an 8k context budget.
 #
 # One YAML fully describes a run. Swapping a component is a config edit here, never an
-# import edit in harness source. To change condition, change `memory.type` — nothing else.
+# import edit in harness source. To change condition, change `memory.type` - nothing else.
 #
 # Unknown keys are an error, not a warning: a typo'd component name must fail loudly
 # rather than silently run the wrong experiment.
@@ -10,6 +10,15 @@ run:
   seed: 1
   max_steps: 35
   run_id_prefix: exp1_vector_8k
+  retrieval_k: 5        # same retrieval budget in every condition, or we compare budgets
+
+suite:
+  count: 30
+  chain_length: 2
+  recall_distance: 12
+  distractor_density: 0.5
+  horizon: 20
+  seed: 1000
 
 planner:
   type: react
@@ -17,22 +26,23 @@ planner:
 
 memory:
   type: vector          # noop | oracle | vector | episodic | graph | hybrid
-  k: 5
 
 context:
   type: budgeted        # budgeted | full
   token_budget: 8000    # the harness budget, imposed independently of model capability
 
 tools:
-  type: local           # local | mock
+  type: local           # task_docs | local | mock
   sandbox_root: ./.sandbox
-  timeout_s: 10
   max_output_chars: 4000
+  max_read_bytes: 65536 # a blocking read is prevented by refusing non-regular files
 
 evaluator:
   type: checker         # checker | always_fail
 
 # Frozen across every condition. Pin the revision, not just the name.
+# VectorMemory is handed an encoder built from this block, so there is exactly one
+# embedding model per run and it is the one in the config hash.
 embedding:
   model: Qwen/Qwen3-Embedding-0.6B
   revision: PIN_ME
@@ -42,6 +52,7 @@ llm:
   base_url: ${HARNESS_LLM_BASE_URL}
   model: PIN_ME
   revision: PIN_ME
+  api_key_env: null     # a local vLLM server needs no key; a hosted one names its variable
   max_output_tokens: 300   # cost lever: 500 -> 300 takes output cost from ~$117 to ~$69
   temperature: 0.0
 

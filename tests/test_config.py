@@ -8,6 +8,9 @@ from harness.config import ConfigError, config_hash, load_config
 
 VALID = """
 run: {seed: 1, max_steps: 35, run_id_prefix: exp1}
+suite:
+  {count: 30, chain_length: 2, recall_distance: 12, distractor_density: 0.5,
+   horizon: 20, seed: 1000}
 planner: {type: single_step, max_steps: 35}
 memory: {type: vector, k: 5}
 context: {type: budgeted, token_budget: 8000}

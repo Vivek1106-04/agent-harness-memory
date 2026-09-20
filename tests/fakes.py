@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
+from collections.abc import Sequence
 
+import numpy as np
+
+from harness.embedding import Vectors, l2_normalise
 from harness.interfaces import LLMClient, Planner
 from harness.tasks.generator import ANSWER_TOOL
 from harness.tokens import approx_token_count
 from harness.types import Action, ContextWindow
+
+HASHING_ENCODER_DIM = 64
 
 
 class FakeLLMClient(LLMClient):
@@ -30,6 +37,30 @@ class FakeLLMClient(LLMClient):
 
     def count_tokens(self, text: str) -> int:
         return approx_token_count(text)
+
+
+class HashingEncoder:
+    """Deterministic bag-of-words hashing into a fixed number of buckets.
+
+    Stands in for the sentence-transformers encoder so that the vector memory can be
+    tested without a model download. `hashlib` rather than `hash()` on purpose: Python
+    salts string hashing per process, and a fake whose vectors changed between runs would
+    make the determinism test in the memory contract pass or fail at random.
+    """
+
+    def __init__(self, dim: int = HASHING_ENCODER_DIM) -> None:
+        self._dim = dim
+
+    def encode(self, texts: Sequence[str]) -> Vectors:
+        matrix = np.zeros((len(texts), self._dim), dtype=np.float32)
+        for row, text in enumerate(texts):
+            for token in re.findall(r"[a-z0-9]+", text.lower()):
+                matrix[row, self._bucket(token)] += 1.0
+        return l2_normalise(matrix)
+
+    def _bucket(self, token: str) -> int:
+        digest = hashlib.sha256(token.encode()).digest()
+        return int.from_bytes(digest[:4], "big") % self._dim
 
 
 class DocumentReadingPlanner(Planner):
