@@ -53,11 +53,13 @@ uv run mypy src/
 uv run python -m harness.cli run --config configs/smoke.yaml
 ```
 
-You need an LLM endpoint. Copy `.env.example` to `.env` and fill in one of:
+You need an LLM endpoint. Copy `.env.example` to `.env`, fill it in, and load it:
 
 ```
 HARNESS_LLM_BASE_URL=http://localhost:8000/v1   # local vLLM — the default
-HARNESS_LLM_API_KEY=...                          # hosted provider, dev only
+GEMINI_API_KEY=...                               # the variable llm.api_key_env names
+
+set -a; source .env; set +a                      # the harness reads the environment only
 ```
 
 `.env` is gitignored. **Never commit a key.** See [SECURITY.md](SECURITY.md).
@@ -117,7 +119,17 @@ The week-3 gate is **not yet answered**: it now needs only a key and a model pin
 recorded in [docs/sweep-memos/week3.md](docs/sweep-memos/week3.md) before any data was
 seen, and the answers go in the same file the day the bracket runs.
 
-Not yet implemented: `GraphMemory`, `HybridMemory`, and the `mock_fs` / `repo_edit` task
-families.
+Week 5 in place: `GraphMemory` (networkx, entity anchors, hop-bounded traversal) and
+`HybridMemory` (cosine + graph fused by reciprocal rank), both passing the memory contract,
+so all six conditions are registered. Retrieval precision/recall is scored per run against
+the gold facts. `python -m harness sweep` runs several configs under several seeds and
+`python -m harness report` produces the pilot table: success and headroom recovered with
+cluster-bootstrap CIs over tasks, forces-recall screen applied, graph-vs-vector paired.
+
+Documents are padded to `suite.document_tokens: 900`, because one-sentence documents all
+fit in 8k and NoOp solved every task (DECISIONS.md, 2026-09-27). The payload change this
+needed (`TaskSpec.document_tokens`, payload 1.1) is pending the owners' ratification.
+
+Not yet implemented: the `mock_fs` / `repo_edit` task families (after the panel).
 
 `PLAN.md` is the schedule; the next hard gate is **code freeze for the panel**.

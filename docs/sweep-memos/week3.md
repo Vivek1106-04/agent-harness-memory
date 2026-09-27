@@ -64,6 +64,38 @@ Neither cleared blocker touches the four questions below. They stand exactly as 
 
 ---
 
+## Finding before any paid call (27 September)
+
+An offline run of the shipped suite (30 tasks, horizon 20, recall_distance 12), driven by
+the scripted perfect reader in `tests/fakes.py` rather than a model:
+
+| token_budget | NoOp | Episodic | Graph | Oracle |
+|---|---|---|---|---|
+| 8000 | 30/30 | 30/30 | 30/30 | 30/30 |
+| 400 | 30/30 | 0/30 | 30/30 | 30/30 |
+| 300 | 0/30 | 0/30 | 30/30 | 30/30 |
+
+At 8k every document fits in the window, so NoOp solves everything and the bracket is
+zero by construction. Running the bracket as configured would have spent the quota to learn
+this. Question 1 answered in advance for that geometry: **narrow**, and the decision rule
+above says redesign the tasks now.
+
+**Redesign taken: longer documents.** Every document is padded with inert filler to
+`suite.document_tokens`. Same suite, 8k budget, same scripted reader (vector and hybrid use
+the hashing test encoder, not Qwen3, so treat those two rows as indicative only):
+
+| document_tokens | NoOp | Episodic | Vector* | Graph | Hybrid* | Oracle |
+|---|---|---|---|---|---|---|
+| 400 | 30/30 | - | - | - | - | 30/30 |
+| 550 | 30/30 | - | - | - | - | 30/30 |
+| 700 | 0/30 | 0/30 | 8/30 | 30/30 | 30/30 | 30/30 |
+| **900 (shipped)** | **0/30** | 0/30 | 6/30 | 30/30 | 30/30 | **30/30** |
+
+The bracket is now full width with a perfect reader. Whether a real model reaches the
+ceiling is still question 2, and still needs the paid run.
+
+---
+
 ## The four questions
 
 ### 1. Is the bracket wide enough to detect a difference?

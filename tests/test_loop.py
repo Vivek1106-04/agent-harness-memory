@@ -6,6 +6,7 @@ import pytest
 
 from harness.components.context_budgeted import BudgetedContextManager
 from harness.components.evaluator_checker import CheckerEvaluator
+from harness.components.memory_graph import GraphMemory
 from harness.components.memory_noop import NoOpMemory
 from harness.components.memory_oracle import OracleMemory
 from harness.components.tools_task_docs import TaskDocumentRuntime
@@ -15,6 +16,7 @@ from harness.loop import (
     STOP_MAX_STEPS,
     STOP_PLANNER_TERMINATED,
     AgentLoop,
+    LoopOutcome,
 )
 from harness.prompts import SYSTEM_INSTRUCTIONS
 from harness.tasks.generator import GeneratedTask, generate
@@ -243,8 +245,15 @@ def test_max_steps_must_be_positive() -> None:
 
 
 def _bracket_run(memory: MemoryProvider, sandbox: Path) -> tuple[Verdict, int]:
+    outcome = _bracket_outcome(memory, sandbox)
+    return outcome.verdict, outcome.steps
+
+
+def _bracket_outcome(
+    memory: MemoryProvider, sandbox: Path, subject: TaskSpec | None = None
+) -> LoopOutcome:
     """One task, one planner, one budget. Only the memory layer changes."""
-    subject = spec()
+    subject = spec() if subject is None else subject
     task = generate(subject)
     budget = (
         approx_token_count(SYSTEM_INSTRUCTIONS) + approx_token_count(task.goal) + TIGHT_BUDGET_SLACK
@@ -260,8 +269,7 @@ def _bracket_run(memory: MemoryProvider, sandbox: Path) -> tuple[Verdict, int]:
         bus=TraceBus(f"bracket-{memory.__class__.__name__}", MemoryTraceSink()),
         max_steps=task.answer_step + 1,
     )
-    outcome = loop.run(task)
-    return outcome.verdict, outcome.steps
+    return loop.run(task)
 
 
 def test_noop_is_the_floor_of_the_bracket(tmp_path: Path) -> None:
@@ -286,3 +294,63 @@ def test_oracle_is_the_ceiling_of_the_bracket(tmp_path: Path) -> None:
     # Assert
     assert verdict.success is True
     assert verdict.score == 1.0
+
+
+def test_graph_memory_recovers_the_evicted_fact(tmp_path: Path) -> None:
+    """The goal names the terminal entity; one hop reaches the fact it depends on.
+
+    Entities are identifier-shaped, as `tasks.suite` names them: that is the surface form
+    the graph's lexical extractor recognises (DECISIONS.md).
+    """
+    # Arrange
+    subject = spec(pool=[f"site_000_{slot:02d}" for slot in range(4)])
+
+    # Act
+    outcome = _bracket_outcome(GraphMemory(hops=1), tmp_path, subject)
+
+    # Assert
+    assert outcome.verdict.success is True
+
+
+def test_retrieval_scores_bracket_the_same_way_success_does(tmp_path: Path) -> None:
+    """The ceiling is perfect by construction; the floor never retrieves anything."""
+    # Act
+    ceiling = _bracket_outcome(OracleMemory(), tmp_path / "oracle")
+    floor = _bracket_outcome(NoOpMemory(), tmp_path / "noop")
+
+    # Assert
+    assert (ceiling.retrieval_precision, ceiling.retrieval_recall) == (1.0, 1.0)
+    assert floor.retrieval_precision is None
+    assert floor.retrieval_recall == 0.0
+
+
+def test_padded_documents_make_an_8k_budget_force_recall(tmp_path: Path) -> None:
+    """Regression for the week-3 finding: one-sentence documents all fit in 8k, so NoOp
+    solved every task. Padded to the shipped `document_tokens`, the floor fails again."""
+    # Arrange
+    subject = spec(
+        graph={"n_1": ["n_0"]},
+        recall_distance=12,
+        horizon=20,
+        pool=[f"site_000_{slot:02d}" for slot in range(10)],
+        document_tokens=900,
+    )
+    task = generate(subject)
+
+    def run(memory: MemoryProvider, sandbox: Path) -> bool:
+        loop = AgentLoop(
+            planner=DocumentReadingPlanner(
+                [name for name, _ in task.documents], task.required[0].entity
+            ),
+            context=BudgetedContextManager(8000),
+            memory=memory,
+            tools=TaskDocumentRuntime(sandbox),
+            evaluator=CheckerEvaluator(),
+            bus=TraceBus("padded", MemoryTraceSink()),
+            max_steps=35,
+        )
+        return loop.run(task).verdict.success
+
+    # Act / Assert
+    assert run(NoOpMemory(), tmp_path / "noop") is False
+    assert run(OracleMemory(), tmp_path / "oracle") is True

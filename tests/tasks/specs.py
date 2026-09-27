@@ -20,6 +20,7 @@ def spec(
     horizon: int = 12,
     pool: list[str] | None = None,
     seed: int = 1,
+    document_tokens: int = 0,
 ) -> TaskSpec:
     return TaskSpec(
         task_id=task_id,
@@ -30,4 +31,5 @@ def spec(
         horizon=horizon,
         entity_pool=DEFAULT_POOL if pool is None else pool,
         seed=seed,
+        document_tokens=document_tokens,
     )

@@ -1,4 +1,4 @@
-"""`python -m harness run <config>` - one config, one task set, one row per task.
+"""`python -m harness run|sweep|report` - configs in, one row per task, a pilot table out.
 
 This is the command the week-3 gate is answered with. Run it against
 `configs/week3_bracket_noop.yaml`, run it against `configs/week3_bracket_oracle.yaml`, and
@@ -19,6 +19,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from harness.analysis import AnalysisError, analyse, render
 from harness.build import BuiltRun, build_llm, build_loop
 from harness.config import HarnessConfig, load_config
 from harness.interfaces import LLMClient
@@ -45,11 +46,53 @@ class RunPaths:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    config = load_config(args.config)
+    if args.command == "report":
+        return _write_report(args.db, args.budget, args.out)
     paths = RunPaths(results=args.out, traces=args.traces, sandbox=args.sandbox)
-    summary = run_config(config, paths)
-    _report(summary, config)
-    return 1 if summary.failed else 0
+    configs = [args.config] if args.command == "run" else args.configs
+    seeds = getattr(args, "seeds", None)
+    return run_sweep([load_config(path) for path in configs], paths, seeds)
+
+
+def run_sweep(
+    configs: list[HarnessConfig],
+    paths: RunPaths,
+    seeds: list[int] | None = None,
+    llm: LLMClient | None = None,
+) -> int:
+    """Every config under every seed, seed-major, so an interrupted pilot leaves whole
+    replicates rather than one condition finished and another not started."""
+    failed = False
+    replicates: list[int | None] = list(seeds) if seeds else [None]
+    for seed in replicates:
+        for config in configs:
+            cell = config if seed is None else with_seed(config, seed)
+            summary = run_config(cell, paths, llm)
+            _report(summary, cell)
+            failed = failed or bool(summary.failed)
+    return 1 if failed else 0
+
+
+def with_seed(config: HarnessConfig, seed: int) -> HarnessConfig:
+    """A replicate of `config`. The seed is hashed, so the provenance header records it."""
+    return config.model_copy(update={"run": config.run.model_copy(update={"seed": seed})})
+
+
+def _write_report(db: Path, budget: int | None, out: Path | None) -> int:
+    with ResultsStore(db) as store:
+        rows = store.all()
+    if budget is not None:
+        rows = [row for row in rows if row.token_budget == budget]
+    try:
+        text = render(analyse(rows))
+    except AnalysisError as error:
+        print(f"report: {error}", file=sys.stderr)
+        return 1
+    if out is None:
+        print(text, end="")
+    else:
+        out.write_text(text, encoding="utf-8")
+    return 0
 
 
 def run_config(
@@ -122,19 +165,26 @@ def _row(
         model_revision=provenance.model_revision,
         embedding_model=provenance.embedding_model,
         embedding_revision=provenance.embedding_revision,
+        retrieval_precision=outcome.retrieval_precision,
+        retrieval_recall=outcome.retrieval_recall,
     )
 
 
 def _plan_item(config: HarnessConfig, spec: TaskSpec) -> RunPlanItem:
+    """`seed` is the run seed, the replicate index of a paired design.
+
+    Not the task seed: that is fixed by `task_id` and the suite, and keying on it made a
+    second replicate of the same config collide with the first and be skipped as done.
+    """
     budget = int(config.context.model_dump().get("token_budget", 0))
     return RunPlanItem(
         run_id=build_run_id(
-            config.run.run_id_prefix, config.memory.type, spec.task_id, spec.seed, budget
+            config.run.run_id_prefix, config.memory.type, spec.task_id, config.run.seed, budget
         ),
         task_id=spec.task_id,
         condition=config.memory.type,
         token_budget=budget,
-        seed=spec.seed,
+        seed=config.run.seed,
     )
 
 
@@ -146,6 +196,7 @@ def _suite_spec(config: HarnessConfig) -> SuiteSpec:
         recall_distance=config.suite.recall_distance,
         distractor_density=config.suite.distractor_density,
         horizon=config.suite.horizon,
+        document_tokens=config.suite.document_tokens,
     )
 
 
@@ -170,9 +221,17 @@ def _parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run", help="run one config over its task suite")
     run.add_argument("config", type=Path, help="path to a harness config YAML")
-    run.add_argument("--out", type=Path, default=DEFAULT_RESULTS_PATH)
-    run.add_argument("--traces", type=Path, default=DEFAULT_TRACE_DIR)
-    run.add_argument("--sandbox", type=Path, default=DEFAULT_SANDBOX_ROOT)
+    sweep = sub.add_parser("sweep", help="run several configs, optionally under several seeds")
+    sweep.add_argument("configs", type=Path, nargs="+", help="harness config YAMLs")
+    sweep.add_argument("--seeds", type=int, nargs="+", help="override run.seed per replicate")
+    for command in (run, sweep):
+        command.add_argument("--out", type=Path, default=DEFAULT_RESULTS_PATH)
+        command.add_argument("--traces", type=Path, default=DEFAULT_TRACE_DIR)
+        command.add_argument("--sandbox", type=Path, default=DEFAULT_SANDBOX_ROOT)
+    report = sub.add_parser("report", help="summarise a results database as markdown")
+    report.add_argument("--db", type=Path, default=DEFAULT_RESULTS_PATH)
+    report.add_argument("--budget", type=int, help="analyse only rows at this token budget")
+    report.add_argument("--out", type=Path, help="write the markdown here instead of stdout")
     return parser
 
 

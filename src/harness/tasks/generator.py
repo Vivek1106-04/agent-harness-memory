@@ -31,6 +31,7 @@ import hashlib
 import random
 from dataclasses import dataclass
 
+from harness.tasks.padding import pad
 from harness.types import TaskSpec
 
 FAMILY_MULTIHOP_QA = "multihop_qa"
@@ -97,7 +98,7 @@ def generate(spec: TaskSpec) -> GeneratedTask:
     total_docs, first_index = _geometry(spec, len(order))
     required = _required_facts(order, entities, values, spec, first_index)
     distractors = _distractor_facts(spec, total_docs, required, set(entities.values()), rng)
-    documents = _documents(total_docs, required, distractors)
+    documents = _documents(spec, total_docs, required, distractors)
 
     return GeneratedTask(
         spec=spec,
@@ -298,10 +299,15 @@ def _distractor_entities(
 
 
 def _documents(
-    total_docs: int, required: tuple[Fact, ...], distractors: tuple[Fact, ...]
+    spec: TaskSpec, total_docs: int, required: tuple[Fact, ...], distractors: tuple[Fact, ...]
 ) -> tuple[tuple[str, str], ...]:
     by_index = {fact.index: fact for fact in (*required, *distractors)}
-    return tuple((by_index[index].doc_name, by_index[index].content) for index in range(total_docs))
+    documents = []
+    for index in range(total_docs):
+        fact = by_index[index]
+        key = f"{spec.task_id}:{spec.seed}:{fact.doc_name}"
+        documents.append((fact.doc_name, pad(fact.content, spec.document_tokens, key)))
+    return tuple(documents)
 
 
 def _gold_labels(total_docs: int, required: tuple[Fact, ...]) -> tuple[frozenset[str], ...]:
