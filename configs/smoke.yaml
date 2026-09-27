@@ -1,0 +1,68 @@
+# Smoke test: ONE task, oracle memory, against the real endpoint. Run this first.
+#
+# It proves the whole path works on the pinned model - key, endpoint, reasoning_effort,
+# the ReAct reply format, the checker - for about 20 calls instead of 360 runs. Oracle is
+# the ceiling, so a correct run should succeed; if it does not, read the trace before
+# spending anything else. Written to its own database so it cannot touch pilot results:
+#
+#   set -a; source .env; set +a
+#   uv run python -m harness run configs/smoke.yaml --out results/smoke.db --traces results/smoke-traces
+
+run:
+  seed: 1
+  max_steps: 35
+  run_id_prefix: smoke
+  retrieval_k: 5
+
+# Identical to the floor cell. Any drift here and the two cells stop being a bracket.
+suite:
+  count: 1
+  chain_length: 2
+  recall_distance: 12
+  distractor_density: 0.5
+  horizon: 20
+  seed: 9000             # its own suite, so smoke rows never merge into pilot tasks
+  document_tokens: 900  # at 1-sentence docs NoOp solves 30/30 at 8k; threshold ~560 offline
+
+planner:
+  type: react
+  max_steps: 35
+
+memory:
+  type: oracle          # noop | oracle | vector | episodic | graph | hybrid
+
+context:
+  type: budgeted        # budgeted | full
+  token_budget: 8000
+
+tools:
+  type: task_docs       # task_docs | local | mock
+  max_output_chars: 4000
+
+evaluator:
+  type: checker
+
+# Frozen across every condition. Pin the revision, not just the name.
+embedding:
+  model: Qwen/Qwen3-Embedding-0.6B
+  revision: 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3   # HF sha, verified 2026-09-27
+
+llm:
+  provider: openai_compatible
+  base_url: ${HARNESS_LLM_BASE_URL}
+  # Verified 2026-09-27: stable, 1M context. 2.5 models are closed to new keys (404).
+  model: gemini-3.5-flash-lite
+  revision: stable-2026-07       # hosted models have no sha; the stable code plus its date
+  api_key_env: GEMINI_API_KEY    # the NAME of the variable, never the key
+  # Gemini 3 counts thinking against max_output_tokens; pinned so it cannot eat the cap.
+  reasoning_effort: minimal
+  max_output_tokens: 300
+  temperature: 0.0
+  max_attempts: 6                # a per-minute 429 carries a retryDelay the client honours
+  # Paid Standard tier list prices, 2026-09-24. On the free tier the meter overstates.
+  price_input_usd_per_m: 0.30
+  price_output_usd_per_m: 2.50
+
+limits:
+  max_tokens_per_run: 500000
+  max_spend_usd: 25.0

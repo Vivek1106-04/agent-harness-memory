@@ -76,6 +76,7 @@ def analyse(
     resamples: int = DEFAULT_RESAMPLES,
     seed: int = DEFAULT_BOOTSTRAP_SEED,
 ) -> PilotReport:
+    _refuse_duplicates(rows)
     budgets = sorted({row.token_budget for row in rows})
     if len(budgets) != 1:
         raise AnalysisError(f"expected rows from exactly one token budget, found {budgets}")
@@ -99,6 +100,17 @@ def analyse(
         conditions=tuple(_summary(kept, c, success, boot) for c in conditions),
         primary=_primary(success, boot),
     )
+
+
+def _refuse_duplicates(rows: Sequence[RunResult]) -> None:
+    """Two rows for one (condition, budget, task, seed) - the same cell under two run-id
+    prefixes - would be averaged as if they were two replicates. Refuse rather than inflate n."""
+    seen: set[tuple[str, int, str, int]] = set()
+    for row in rows:
+        cell = (row.condition, row.token_budget, row.task_id, row.seed)
+        if cell in seen:
+            raise AnalysisError(f"duplicate rows for condition/budget/task/seed {cell}")
+        seen.add(cell)
 
 
 def _complete_tasks(

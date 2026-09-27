@@ -65,7 +65,7 @@ class HybridMemory(MemoryProvider):
     def _fused(self, query: MemoryQuery) -> Vectors:
         fused = np.zeros(len(self._items), dtype=np.float32)
         if query.text:
-            cosine = np.stack(self._vectors) @ self._encoder.encode([query.text])[0]
+            cosine = np.stack(self._vectors) @ self._encoder.encode_queries([query.text])[0]
             for rank, index in enumerate(np.argsort(-cosine, kind="stable")):
                 fused[index] += 1.0 / (RRF_K + rank + 1)
         anchors = query.entities or extract_entities(query.text or "")

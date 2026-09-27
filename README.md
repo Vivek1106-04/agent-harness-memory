@@ -50,7 +50,7 @@ uv run ruff format --check .
 uv run mypy src/
 
 # run one task end to end
-uv run python -m harness.cli run --config configs/smoke.yaml
+uv run python -m harness run configs/smoke.yaml --out results/smoke.db --traces results/smoke-traces
 ```
 
 You need an LLM endpoint. Copy `.env.example` to `.env`, fill it in, and load it:
@@ -106,16 +106,25 @@ real sandboxed filesystem, the first two memory providers under test (`VectorMem
 exact cosine, `EpisodicMemory` with time-windowed retrieval), task suites as a pure
 function of the config, and a resumable CLI. 383 tests, 100% coverage on `src/harness/`.
 
-Running a cell:
+Running it, in this order (the key lives in `.env`, never in a config file):
 
 ```bash
-export GEMINI_API_KEY=...                       # never in a config file
-uv run python -m harness run configs/week3_bracket_noop.yaml
-uv run python -m harness run configs/week3_bracket_oracle.yaml
+set -a; source .env; set +a
+# 1. one task, oracle, own database - proves the real path end to end
+uv run python -m harness run configs/smoke.yaml --out results/smoke.db --traces results/smoke-traces
+# 2. the bracket (week-3 gate)
+uv run python -m harness sweep configs/week3_bracket_noop.yaml configs/week3_bracket_oracle.yaml
+# 3. the pilot: 6 conditions x 2 seeds; bracket rows for seed 1 are reused
+uv run python -m harness sweep configs/week3_bracket_noop.yaml configs/week3_bracket_oracle.yaml \
+    configs/pilot_*_8k.yaml --seeds 1 2
+uv run python -m harness report --out docs/sweep-memos/pilot-table.md
 ```
 
-The week-3 gate is **not yet answered**: it now needs only a key and a model pinned in
-`llm.model` / `llm.revision` (>= 128k context). Questions, method and decision rules were
+Pinned: `gemini-3.5-flash-lite` with `reasoning_effort: minimal`, Qwen3-Embedding-0.6B at
+sha `97b0c61`. `limits.max_spend_usd` stops the sweep (exit 2); rerunning resumes.
+
+The week-3 gate is **not yet answered**: everything is pinned and it needs only the paid
+run. Questions, method and decision rules were
 recorded in [docs/sweep-memos/week3.md](docs/sweep-memos/week3.md) before any data was
 seen, and the answers go in the same file the day the bracket runs.
 

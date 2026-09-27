@@ -10,6 +10,8 @@ import pytest
 from harness.llm_http import (
     HttpLLMClient,
     LLMTransportError,
+    Pricing,
+    SpendLimitError,
     to_messages,
 )
 from harness.prompts import SYSTEM_INSTRUCTIONS
@@ -330,3 +332,234 @@ def test_several_system_segments_are_joined_in_order() -> None:
     window = _window([("system", "first"), ("system", "second"), ("goal", "g")])
 
     assert to_messages(window)[0]["content"] == "first\n\nsecond"
+
+
+def _priced(handler: object, max_spend: float | None = None, spent: float = 0.0) -> HttpLLMClient:
+    return HttpLLMClient(
+        base_url=BASE_URL,
+        model=MODEL,
+        max_attempts=1,
+        backoff_s=NO_BACKOFF,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),  # type: ignore[arg-type]
+        pricing=Pricing(
+            input_usd_per_m=1.0,
+            output_usd_per_m=10.0,
+            max_spend_usd=max_spend,
+            already_spent_usd=spent,
+        ),
+    )
+
+
+def _with_usage(prompt: int, completion: int, total: int | None = None) -> dict[str, object]:
+    usage = {"prompt_tokens": prompt, "completion_tokens": completion}
+    if total is not None:
+        usage["total_tokens"] = total
+    return {**_completion("Action: {}"), "usage": usage}
+
+
+def test_reasoning_effort_is_sent_only_when_configured() -> None:
+    # Arrange
+    bodies: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json=_completion("x"))
+
+    plain = _client(handler)
+    pinned = HttpLLMClient(
+        base_url=BASE_URL,
+        model=MODEL,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        reasoning_effort="minimal",
+    )
+
+    # Act
+    plain.complete(_window(), max_output_tokens=10)
+    pinned.complete(_window(), max_output_tokens=10)
+
+    # Assert
+    assert "reasoning_effort" not in bodies[0]
+    assert bodies[1]["reasoning_effort"] == "minimal"
+
+
+def test_spend_is_priced_from_the_reported_usage() -> None:
+    # Arrange
+    client = _priced(lambda request: httpx.Response(200, json=_with_usage(1_000_000, 100_000)))
+
+    # Act
+    client.complete(_window(), max_output_tokens=10)
+
+    # Assert
+    assert client.spent_usd == pytest.approx(1.0 + 1.0)
+
+
+def test_thinking_tokens_hidden_in_the_total_are_billed_as_output() -> None:
+    """Gemini reports thinking only in total_tokens; it is billed at the output price."""
+    # Arrange
+    body = _with_usage(1_000_000, 100_000, total=1_200_000)
+    client = _priced(lambda request: httpx.Response(200, json=body))
+
+    # Act
+    client.complete(_window(), max_output_tokens=10)
+
+    # Assert
+    assert client.spent_usd == pytest.approx(1.0 + 2.0)
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [None, {"completion_tokens": 5}, {"prompt_tokens": 1_000_000, "completion_tokens": "x"}],
+)
+def test_missing_usage_falls_back_to_the_approximate_count(usage: object) -> None:
+    """The limit must still bind when an endpoint omits or garbles its usage report."""
+    # Arrange
+    body = {**_completion("Action: {}")}
+    if usage is not None:
+        body["usage"] = usage
+    client = _priced(lambda request: httpx.Response(200, json=body))
+
+    # Act
+    client.complete(_window(), max_output_tokens=10)
+
+    # Assert
+    assert client.spent_usd > 0
+
+
+def test_the_spend_limit_refuses_the_next_call() -> None:
+    # Arrange
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(200, json=_with_usage(1_000_000, 0))
+
+    client = _priced(handler, max_spend=1.5)
+    client.complete(_window(), max_output_tokens=10)
+    client.complete(_window(), max_output_tokens=10)
+
+    # Act / Assert
+    with pytest.raises(SpendLimitError, match="spend limit reached"):
+        client.complete(_window(), max_output_tokens=10)
+    assert len(calls) == 2
+
+
+def test_spend_recorded_earlier_counts_against_the_limit() -> None:
+    """A resumed sweep keeps counting from what the results store recorded."""
+    client = _priced(lambda request: httpx.Response(200, json=_completion("x")), 5.0, 5.0)
+    with pytest.raises(SpendLimitError):
+        client.complete(_window(), max_output_tokens=10)
+
+
+def test_a_client_without_pricing_spends_nothing() -> None:
+    client = _client(lambda request: httpx.Response(200, json=_with_usage(10, 10)))
+    client.complete(_window(), max_output_tokens=10)
+    assert client.spent_usd == 0.0
+
+
+def _rate_limited_then_ok(response: httpx.Response) -> tuple[list[float], HttpLLMClient]:
+    waits: list[float] = []
+    replies = [response, httpx.Response(200, json=_completion("ok"))]
+    client = _client(lambda request: replies.pop(0), max_attempts=2)
+    return waits, client
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        (httpx.Response(429, headers={"retry-after": "7"}), 7.0),
+        (httpx.Response(429, text='[{"error": {"details": [{"retryDelay": "36s"}]}}]'), 36.0),
+        (httpx.Response(429, text='{"retryDelay": "600s"}'), 90.0),
+    ],
+)
+def test_a_server_requested_wait_is_honoured_and_capped(
+    response: httpx.Response, expected: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange
+    slept: list[float] = []
+    monkeypatch.setattr("tenacity.nap.time.sleep", slept.append)
+    _, client = _rate_limited_then_ok(response)
+
+    # Act
+    text = client.complete(_window(), max_output_tokens=10)
+
+    # Assert
+    assert text == "ok"
+    assert slept == [expected]
+
+
+def test_an_unparseable_retry_after_header_falls_back_to_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    slept: list[float] = []
+    monkeypatch.setattr("tenacity.nap.time.sleep", slept.append)
+    _, client = _rate_limited_then_ok(httpx.Response(429, headers={"retry-after": "soon"}))
+
+    # Act
+    client.complete(_window(), max_output_tokens=10)
+
+    # Assert
+    assert slept == [0.0]
+
+
+def test_from_env_passes_reasoning_effort_and_pricing() -> None:
+    # Arrange
+    bodies: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json=_with_usage(1_000_000, 0))
+
+    client = HttpLLMClient.from_env(
+        base_url=BASE_URL,
+        model=MODEL,
+        env={},
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        reasoning_effort="low",
+        pricing=Pricing(input_usd_per_m=2.0),
+    )
+
+    # Act
+    client.complete(_window(), max_output_tokens=10)
+
+    # Assert
+    assert bodies[0]["reasoning_effort"] == "low"
+    assert client.spent_usd == pytest.approx(2.0)
+
+
+def test_an_empty_completion_is_asked_again() -> None:
+    # Arrange
+    replies = [_completion(""), _completion("   "), _completion("Action: {}")]
+    client = _client(lambda request: httpx.Response(200, json=replies.pop(0)))
+
+    # Act
+    text = client.complete(_window(), max_output_tokens=10)
+
+    # Assert
+    assert text == "Action: {}"
+    assert replies == []
+
+
+def test_persistent_empty_completions_are_returned_as_empty_after_the_retries() -> None:
+    """The planner already treats an empty reply as malformed output."""
+    # Arrange
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(200, json=_completion(""))
+
+    # Act
+    text = _client(handler).complete(_window(), max_output_tokens=10)
+
+    # Assert
+    assert text == ""
+    assert len(calls) == 3
+
+
+def test_every_retried_empty_call_is_metered() -> None:
+    replies = [_with_usage(1_000_000, 0), _with_usage(1_000_000, 0)]
+    replies[0]["choices"] = [{"message": {"role": "assistant"}}]
+    client = _priced(lambda request: httpx.Response(200, json=replies.pop(0)))
+    client.complete(_window(), max_output_tokens=10)
+    assert client.spent_usd == pytest.approx(2.0)

@@ -58,6 +58,9 @@ class HashingEncoder:
                 matrix[row, self._bucket(token)] += 1.0
         return l2_normalise(matrix)
 
+    def encode_queries(self, texts: Sequence[str]) -> Vectors:
+        return self.encode(texts)
+
     def _bucket(self, token: str) -> int:
         digest = hashlib.sha256(token.encode()).digest()
         return int.from_bytes(digest[:4], "big") % self._dim

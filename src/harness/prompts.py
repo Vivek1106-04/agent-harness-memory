@@ -31,10 +31,25 @@ ACTION_PROTOCOL = (
 SYSTEM_INSTRUCTIONS = f"{AGENT_PREAMBLE} {ACTION_PROTOCOL}"
 
 
+#: Observation metadata key a tool runtime sets to what an action acted on (a path).
+TARGET_KEY = "target"
+
+
 def render_observation(observation: Observation) -> str:
     """How an observation reads in the prompt. Shared for the same reason as the system text:
-    two managers rendering history differently would be two different experiments."""
+    two managers rendering history differently would be two different experiments.
+
+    The action's target is shown with the tool - `read_file(doc_03.txt)` - because the agent
+    sees no other record of what it did. Without it, a model whose listing has been evicted
+    cannot tell which documents it has read, and re-reads the first one until the step cap
+    (found by the first real smoke run, 2026-09-27). Memory stores `content` only, so this
+    changes the prompt and nothing a memory provider sees.
+    """
+    call = observation.tool_name
+    target = observation.metadata.get(TARGET_KEY)
+    if isinstance(target, str):
+        call = f"{call}({target})"
     prefix = f"[step {observation.step}]"
     if observation.error is not None:
-        return f"{prefix} error from {observation.tool_name}: {observation.error}"
-    return f"{prefix} {observation.tool_name}: {observation.content}"
+        return f"{prefix} error from {call}: {observation.error}"
+    return f"{prefix} {call}: {observation.content}"

@@ -5,12 +5,9 @@
 # every other control is identical, so the spread between the two cells is attributable to
 # the memory layer and to nothing else.
 #
-# RUNNABLE once two things are set:
-#   1. GEMINI_API_KEY in the environment. The client refuses to start without it rather
-#      than discovering it missing on the first call.
-#   2. `llm.model` and `llm.revision` pinned to the selected model, which must have
-#      >= 128k context (PLAN.md week 3, question 3). PIN_ME fails loudly by being wrong,
-#      not by being absent.
+# RUNNABLE once GEMINI_API_KEY is in the environment (`set -a; source .env; set +a`). The
+# client refuses to start without it. Model pinned 2026-09-27: gemini-3.5-flash-lite, 1M
+# context, which clears the >= 128k constraint (PLAN.md week 3, question 3).
 #
 #   uv run python -m harness run configs/week3_bracket_oracle.yaml
 #
@@ -55,16 +52,23 @@ evaluator:
 # Frozen across every condition. Pin the revision, not just the name.
 embedding:
   model: Qwen/Qwen3-Embedding-0.6B
-  revision: PIN_ME
+  revision: 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3   # HF sha, verified 2026-09-27
 
 llm:
   provider: openai_compatible
   base_url: ${HARNESS_LLM_BASE_URL}
-  model: PIN_ME
-  revision: PIN_ME
-  api_key_env: GEMINI_API_KEY   # the NAME of the variable, never the key
+  # Verified 2026-09-27: stable, 1M context. 2.5 models are closed to new keys (404).
+  model: gemini-3.5-flash-lite
+  revision: stable-2026-07       # hosted models have no sha; the stable code plus its date
+  api_key_env: GEMINI_API_KEY    # the NAME of the variable, never the key
+  # Gemini 3 counts thinking against max_output_tokens; pinned so it cannot eat the cap.
+  reasoning_effort: minimal
   max_output_tokens: 300
   temperature: 0.0
+  max_attempts: 6                # a per-minute 429 carries a retryDelay the client honours
+  # Paid Standard tier list prices, 2026-09-24. On the free tier the meter overstates.
+  price_input_usd_per_m: 0.30
+  price_output_usd_per_m: 2.50
 
 limits:
   max_tokens_per_run: 500000

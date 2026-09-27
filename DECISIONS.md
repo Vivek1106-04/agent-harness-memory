@@ -376,6 +376,55 @@ and Hybrid were written in the same session as Vector and Episodic, by the same 
 GraphMemory/HybridMemory by Muni + Jugal before the numbers are reported restores part of it.
 **Reportable?** yes - threats to validity.
 
+### 2026-09-27 · models · gemini-3.5-flash-lite, with thinking pinned to minimal
+**Owner:** Vivek
+**What did not fit:** `gemini-2.5-flash` and `-flash-lite` return 404 to new keys ("no
+longer available to new users"). Gemini 3 models cannot turn thinking off, and the API
+counts thinking tokens against `max_output_tokens` - with the 300-token cap, unpinned
+thinking can consume the whole reply and leave an empty completion, which the planner
+would score as malformed output. That would be a model-configuration failure recorded as
+a memory result.
+**What we changed:** `llm.reasoning_effort` (sent verbatim when set) and pinned
+`minimal`. Probed 2026-09-27 on a two-fact prompt: 3.5-flash-lite answered correctly with
+no hidden thinking tokens; 3.1-flash-lite ignored facts already in its prompt; 3.6-flash was
+correct but thinks by default and doubles in price on 1 Jan 2027. Hosted models have no
+revision sha, so `llm.revision` records the stable code's release month.
+**Reportable?** yes - model selection is week-3 question 3.
+
+### 2026-09-27 · limits · the spend and token limits are enforced, not declared
+**Owner:** Vivek
+**What did not fit:** `limits.max_spend_usd` and `limits.max_tokens_per_run` were
+validated and hashed, and read by nothing.
+**What we changed:** the HTTP client prices every call from the endpoint's `usage` block
+(thinking billed as output via `total_tokens`), falls back to the arithmetic count when
+usage is absent, and refuses the next call at the limit with `SpendLimitError`. Spend is
+seeded from the results store, so a resumed sweep keeps counting; each row records
+`cost_usd`. The loop stops a run before the next step once `max_tokens_per_run` is used.
+The runner stops the sweep on `SweepAbortedError` and after 3 consecutive failed cells - a
+revoked key or a spent daily quota fails every cell, and grinding on records nothing.
+**What it cost:** spend inside a run that later raises is counted in-process but not
+recorded, so after a crash-and-resume the meter under-counts by at most one run.
+Prices are paid-tier list prices even on the free tier, so the meter overstates there.
+**Reportable?** no - operational.
+
+### 2026-09-27 · tasks · task ids carry a digest of the suite
+**Owner:** Vivek
+**What did not fit:** every suite numbered its tasks `task-000` upward, so two suites in one
+results store - a smoke run, a padded and an unpadded suite - would be merged by the report
+as the same tasks.
+**What we changed:** task ids are `suite<digest>-NNN`, digest over the validated suite
+block minus `count` (task N is the same task at any suite size). The report also refuses
+two rows for one (condition, budget, task, seed).
+**Reportable?** no - but it is the class of bug that produces plausible wrong numbers.
+
+### 2026-09-27 · memory · queries are encoded with the embedder's own query prompt
+**Owner:** Vivek
+**What did not fit:** Qwen3-Embedding is instruction-tuned and ships a `query` prompt;
+encoding queries like documents benchmarks a degraded vector memory.
+**What we changed:** `Encoder.encode_queries` applies the model's shipped `query` prompt
+(part of the pinned revision, not tuned here). Vector and Hybrid use it for queries only.
+**Reportable?** yes - fairness to the baseline.
+
 ---
 
 ## Open questions to resolve by the week-2 freeze

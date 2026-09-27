@@ -43,6 +43,7 @@ LAYER_EVALUATOR = "evaluator"
 STOP_PLANNER_TERMINATED = "planner_terminated"
 STOP_ANSWERED = "answered"
 STOP_MAX_STEPS = "max_steps"
+STOP_TOKEN_LIMIT = "max_tokens_per_run"  # noqa: S105 - a stop reason, not a secret
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,7 @@ class AgentLoop:
         max_steps: int,
         retrieval_k: int = DEFAULT_RETRIEVAL_K,
         count_tokens: Callable[[str], int] = approx_token_count,
+        max_tokens_per_run: int | None = None,
     ) -> None:
         if max_steps <= 0:
             raise ValueError(f"max_steps must be positive, got {max_steps}")
@@ -85,6 +87,7 @@ class AgentLoop:
         self._max_steps = max_steps
         self._retrieval_k = retrieval_k
         self._count_tokens = count_tokens
+        self._max_tokens_per_run = max_tokens_per_run
 
     def run(self, task: GeneratedTask) -> LoopOutcome:
         started = time.perf_counter()
@@ -100,6 +103,9 @@ class AgentLoop:
         step = 0
 
         for step in range(1, self._max_steps + 1):
+            if self._over_token_limit(tokens_read + tokens_write):
+                stop_reason = STOP_TOKEN_LIMIT
+                break
             retrieved = self._retrieve(task.goal, step)
             tally.observe([o.content for o in history], [item.content for item in retrieved])
             window = self._context.assemble(task.goal, history, retrieved)
@@ -155,6 +161,10 @@ class AgentLoop:
             retrieval_precision=tally.precision,
             retrieval_recall=tally.recall,
         )
+
+    def _over_token_limit(self, spent: int) -> bool:
+        """Checked before a step, so no call is made once the run's allowance is used."""
+        return self._max_tokens_per_run is not None and spent >= self._max_tokens_per_run
 
     def _retrieve(self, goal: str, step: int) -> list[MemoryItem]:
         items = self._memory.retrieve(MemoryQuery(text=goal, k=self._retrieval_k))

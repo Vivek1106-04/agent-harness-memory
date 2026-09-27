@@ -15,3 +15,23 @@ def test_a_dropped_entry_carries_an_identifier_and_a_reason() -> None:
 
 def test_protected_roles_are_system_and_goal() -> None:
     assert frozenset({"system", "goal"}) == PROTECTED_ROLES
+
+
+def test_a_read_is_rendered_with_the_document_it_read() -> None:
+    """Without the target the agent cannot tell which documents it has already read."""
+    from harness.prompts import TARGET_KEY, render_observation
+    from harness.types import Observation
+
+    observation = Observation(
+        step=3, content="text", tool_name="read_file", metadata={TARGET_KEY: "doc_03.txt"}
+    )
+    assert render_observation(observation) == "[step 3] read_file(doc_03.txt): text"
+
+
+def test_an_observation_without_a_target_renders_as_before() -> None:
+    from harness.prompts import render_observation
+    from harness.types import Observation
+
+    assert render_observation(Observation(step=1, content="a", tool_name="list_dir")) == (
+        "[step 1] list_dir: a"
+    )

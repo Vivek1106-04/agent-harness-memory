@@ -13,6 +13,9 @@ Three properties this file exists to hold:
 * **Transient failure is retried, and only transient failure.** A timeout, a dropped
   connection, a 429 or a 5xx are the API having a bad minute. A 400 is our bug and retrying
   it just spends the budget four times.
+* **Spend is metered from the endpoint's own usage report** and priced from config. The
+  client refuses a call once `max_spend_usd` is reached, and raises `SpendLimitError`,
+  which stops the sweep rather than failing every remaining cell one by one.
 * **A refusal is not an exception.** An empty or missing completion is returned as an empty
   string, because the planner already treats malformed model output as an expected
   condition. Only transport failure raises, and the runner records that cell as failed and
@@ -22,13 +25,22 @@ Three properties this file exists to hold:
 from __future__ import annotations
 
 import os
+import re
+from collections.abc import Callable
 from types import TracebackType
 
 import httpx
-from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    RetryCallState,
+    Retrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from harness.interfaces import LLMClient
 from harness.prompts import SYSTEM_INSTRUCTIONS
+from harness.runner import SweepAbortedError
 from harness.segments import ROLE_SYSTEM
 from harness.tokens import approx_token_count
 from harness.types import ContextWindow
@@ -37,6 +49,17 @@ DEFAULT_TIMEOUT_S = 120.0
 DEFAULT_MAX_ATTEMPTS = 4
 DEFAULT_BACKOFF_S = 1.0
 MAX_BACKOFF_S = 30.0
+#: Longest server-requested wait honoured. A per-minute quota asks for under a minute; a
+#: longer request means a daily quota, and the consecutive-failure stop handles that.
+MAX_RETRY_AFTER_S = 90.0
+TOKENS_PER_MILLION = 1_000_000
+#: Gemini occasionally answers `finish_reason: stop` with no content and zero output tokens
+#: (about 1 call in 11 in the first smoke run). Asking again is a transport retry, not a
+#: second opinion: an empty reply carries no model output to prefer or discard.
+EMPTY_COMPLETION_RETRIES = 2
+
+#: Gemini puts the wait in the error body ("retryDelay": "36s"); others use the header.
+_RETRY_DELAY = re.compile(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"')
 
 #: Status codes worth a second attempt: rate limiting and server-side faults.
 RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
@@ -52,6 +75,14 @@ class LLMTransportError(Exception):
 class _RetryableStatusError(LLMTransportError):
     """An HTTP status that is worth another attempt. Internal to the retry policy."""
 
+    def __init__(self, message: str, retry_after_s: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_s = retry_after_s
+
+
+class SpendLimitError(SweepAbortedError):
+    """The configured spend limit is reached. No further call is made."""
+
 
 class HttpLLMClient(LLMClient):
     def __init__(
@@ -64,6 +95,8 @@ class HttpLLMClient(LLMClient):
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         backoff_s: float = DEFAULT_BACKOFF_S,
         client: httpx.Client | None = None,
+        reasoning_effort: str | None = None,
+        pricing: Pricing | None = None,
     ) -> None:
         if max_attempts < 1:
             raise ValueError(f"max_attempts must be at least 1, got {max_attempts}")
@@ -72,6 +105,9 @@ class HttpLLMClient(LLMClient):
         self._temperature = temperature
         self._max_attempts = max_attempts
         self._backoff_s = backoff_s
+        self._reasoning_effort = reasoning_effort
+        self._pricing = pricing or Pricing()
+        self._spent_usd = self._pricing.already_spent_usd
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -89,6 +125,8 @@ class HttpLLMClient(LLMClient):
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         env: dict[str, str] | None = None,
         client: httpx.Client | None = None,
+        reasoning_effort: str | None = None,
+        pricing: Pricing | None = None,
     ) -> HttpLLMClient:
         """Build a client, reading the key from the environment variable `api_key_env`.
 
@@ -113,17 +151,38 @@ class HttpLLMClient(LLMClient):
             timeout_s=timeout_s,
             max_attempts=max_attempts,
             client=client,
+            reasoning_effort=reasoning_effort,
+            pricing=pricing,
         )
 
+    @property
+    def spent_usd(self) -> float:
+        return self._spent_usd
+
     def complete(self, window: ContextWindow, max_output_tokens: int) -> str:
-        payload = {
+        limit = self._pricing.max_spend_usd
+        if limit is not None and self._spent_usd >= limit:
+            raise SpendLimitError(
+                f"spend limit reached: ${self._spent_usd:.2f} of ${limit:.2f} "
+                "(limits.max_spend_usd)"
+            )
+        messages = to_messages(window)
+        payload: dict[str, object] = {
             "model": self._model,
-            "messages": to_messages(window),
+            "messages": messages,
             "max_tokens": max_output_tokens,
             "temperature": self._temperature,
         }
-        response = self._post_with_retry(payload)
-        return _first_choice_text(response)
+        if self._reasoning_effort is not None:
+            payload["reasoning_effort"] = self._reasoning_effort
+        text = ""
+        for _ in range(1 + EMPTY_COMPLETION_RETRIES):
+            response = self._post_with_retry(payload)
+            text = _first_choice_text(response)
+            self._spent_usd += self._pricing.cost(response, messages, text)
+            if text.strip():
+                break
+        return text
 
     def count_tokens(self, text: str) -> int:
         """The arithmetic approximation, deliberately, not the provider's tokenizer.
@@ -151,7 +210,7 @@ class HttpLLMClient(LLMClient):
     def _post_with_retry(self, payload: dict[str, object]) -> dict[str, object]:
         retrying = Retrying(
             stop=stop_after_attempt(self._max_attempts),
-            wait=wait_exponential(multiplier=self._backoff_s, max=MAX_BACKOFF_S),
+            wait=_server_or_exponential(self._backoff_s),
             retry=retry_if_exception_type((_RetryableStatusError, httpx.TransportError)),
             reraise=True,
         )
@@ -165,7 +224,10 @@ class HttpLLMClient(LLMClient):
             f"{self._base_url}{COMPLETIONS_PATH}", json=payload, headers=self._headers
         )
         if response.status_code in RETRYABLE_STATUS:
-            raise _RetryableStatusError(f"{self._model}: endpoint returned {response.status_code}")
+            raise _RetryableStatusError(
+                f"{self._model}: endpoint returned {response.status_code}",
+                retry_after_s=_retry_after(response),
+            )
         if response.status_code >= 400:
             raise LLMTransportError(f"{self._model}: endpoint returned {response.status_code}")
         body = response.json()
@@ -203,3 +265,75 @@ def _first_choice_text(body: dict[str, object]) -> str:
         return ""
     content = message.get("content")
     return content if isinstance(content, str) else ""
+
+
+class Pricing:
+    """What a call costs, and when to stop paying.
+
+    Priced from the endpoint's `usage` block when it sends one, which is what the provider
+    bills. Without one - a local server, or a provider that omits it - the arithmetic token
+    count stands in, so the limit still binds rather than silently reading zero.
+    """
+
+    def __init__(
+        self,
+        input_usd_per_m: float = 0.0,
+        output_usd_per_m: float = 0.0,
+        max_spend_usd: float | None = None,
+        already_spent_usd: float = 0.0,
+    ) -> None:
+        self.input_usd_per_m = input_usd_per_m
+        self.output_usd_per_m = output_usd_per_m
+        self.max_spend_usd = max_spend_usd
+        self.already_spent_usd = already_spent_usd
+
+    def cost(self, body: dict[str, object], messages: list[dict[str, str]], text: str) -> float:
+        prompt, completion = _usage(body)
+        if prompt is None:
+            prompt = sum(approx_token_count(message["content"]) for message in messages)
+        if completion is None:
+            completion = approx_token_count(text)
+        return (
+            prompt * self.input_usd_per_m + completion * self.output_usd_per_m
+        ) / TOKENS_PER_MILLION
+
+
+def _usage(body: dict[str, object]) -> tuple[int | None, int | None]:
+    """(prompt, billed output) tokens. Output is total minus prompt when total is given,
+    because thinking tokens are billed as output and some endpoints report them only there."""
+    usage = body.get("usage")
+    if not isinstance(usage, dict):
+        return None, None
+    prompt = usage.get("prompt_tokens")
+    completion = usage.get("completion_tokens")
+    total = usage.get("total_tokens")
+    if not isinstance(prompt, int):
+        return None, None
+    if isinstance(total, int) and total >= prompt:
+        return prompt, total - prompt
+    return prompt, completion if isinstance(completion, int) else None
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    header = response.headers.get("retry-after")
+    if header is not None:
+        try:
+            return float(header)
+        except ValueError:
+            return None
+    match = _RETRY_DELAY.search(response.text)
+    return float(match.group(1)) if match else None
+
+
+def _server_or_exponential(backoff_s: float) -> Callable[[RetryCallState], float]:
+    """Wait as long as the server asked, capped; otherwise back off exponentially."""
+    exponential = wait_exponential(multiplier=backoff_s, max=MAX_BACKOFF_S)
+
+    def wait(state: RetryCallState) -> float:
+        error = state.outcome.exception() if state.outcome is not None else None
+        requested = getattr(error, "retry_after_s", None)
+        if isinstance(requested, float):
+            return min(requested, MAX_RETRY_AFTER_S)
+        return float(exponential(state))
+
+    return wait

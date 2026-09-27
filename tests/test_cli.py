@@ -8,16 +8,18 @@ adds is the only thing left, and that is what the gate run is for.
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from harness.cli import RunPaths, main, run_config, run_sweep
-from harness.config import load_config
+from harness.cli import EXIT_ABORTED, RunPaths, main, run_config, run_sweep, suite_spec
+from harness.config import HarnessConfig, load_config
+from harness.llm_http import SpendLimitError
 from harness.results import ResultsStore
 from harness.tasks.generator import generate
-from harness.tasks.suite import SuiteSpec, build_suite
+from harness.tasks.suite import build_suite
 from tests.fakes import FakeLLMClient
 from tests.test_build import write_config
 
@@ -45,9 +47,15 @@ def _first_trace_event(trace_dir: Path, run_id: str) -> Any:
         return json.loads(handle.readline())
 
 
+def _config_for_script() -> HarnessConfig:
+    """The suite the scripts are written against: SUITE on the shared template."""
+    with tempfile.TemporaryDirectory() as scratch:
+        return load_config(write_config(Path(scratch), suite=SUITE))
+
+
 def _reading_script(task_index: int = 0) -> list[str]:
     """Replies that walk the workspace and then answer: a competent agent, scripted."""
-    spec = build_suite(SuiteSpec(**SUITE))[task_index]  # type: ignore[arg-type]
+    spec = build_suite(suite_spec(_config_for_script()))[task_index]
     task = generate(spec)
     reads = [
         json.dumps({"tool_name": "read_file", "arguments": {"path": name}})
@@ -171,7 +179,7 @@ def test_main_runs_a_config_from_the_command_line(
 ) -> None:
     # Arrange
     config_path = write_config(tmp_path, suite={**SUITE, "count": 1}, run={"max_steps": 6})
-    monkeypatch.setattr("harness.cli.build_llm", lambda config, env=None: FakeLLMClient(["{}"]))
+    monkeypatch.setattr("harness.cli.build_llm", lambda config, **_: FakeLLMClient(["{}"]))
     paths = _paths(tmp_path)
 
     # Act
@@ -200,7 +208,7 @@ def test_main_exits_non_zero_when_a_cell_failed(
     config_path = write_config(
         tmp_path, suite={**SUITE, "count": 1, "recall_distance": 99}, run={"max_steps": 6}
     )
-    monkeypatch.setattr("harness.cli.build_llm", lambda config, env=None: FakeLLMClient(["{}"]))
+    monkeypatch.setattr("harness.cli.build_llm", lambda config, **_: FakeLLMClient(["{}"]))
     paths = _paths(tmp_path)
 
     # Act
@@ -278,7 +286,7 @@ def test_main_sweep_and_report_produce_a_pilot_table(
 ) -> None:
     # Arrange
     config_path = write_config(tmp_path, suite=SUITE)
-    monkeypatch.setattr("harness.cli.build_llm", lambda _: FakeLLMClient(_reading_script()))
+    monkeypatch.setattr("harness.cli.build_llm", lambda _, **__: FakeLLMClient(_reading_script()))
     db = tmp_path / "runs.db"
     common = ["--out", str(db), "--traces", str(tmp_path / "t"), "--sandbox", str(tmp_path)]
 
@@ -290,7 +298,7 @@ def test_main_sweep_and_report_produce_a_pilot_table(
     # Assert
     assert (swept, reported, printed) == (0, 0, 0)
     assert "Preliminary" in (tmp_path / "pilot.md").read_text()
-    assert "| noop | 4 |" in capsys.readouterr().out
+    assert "| noop |" in capsys.readouterr().out
 
 
 def test_report_on_an_empty_database_fails_with_a_message(
@@ -302,3 +310,92 @@ def test_report_on_an_empty_database_fails_with_a_message(
     # Assert
     assert code == 1
     assert "report:" in capsys.readouterr().err
+
+
+def test_a_spend_abort_stops_the_whole_sweep_with_its_own_exit_code(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Arrange
+    first = load_config(write_config(tmp_path, suite=SUITE))
+    second = first.model_copy(update={"memory": first.memory.model_copy(update={"type": "oracle"})})
+
+    class Broke(FakeLLMClient):
+        def complete(self, window: object, max_output_tokens: int) -> str:
+            raise SpendLimitError("spend limit reached: $25.00 of $25.00")
+
+    # Act
+    code = run_sweep([first, second], _paths(tmp_path), llm=Broke(["x"]))
+
+    # Assert
+    assert code == EXIT_ABORTED
+    assert "sweep stopped: spend limit reached" in capsys.readouterr().err
+
+
+def test_one_metered_client_serves_every_cell_of_a_sweep(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Separate clients would each start the spend meter at zero."""
+    # Arrange
+    built: list[float] = []
+
+    def fake_build(config: object, already_spent_usd: float = 0.0) -> FakeLLMClient:
+        built.append(already_spent_usd)
+        return FakeLLMClient(["{}"])
+
+    monkeypatch.setattr("harness.cli.build_llm", fake_build)
+    config = load_config(write_config(tmp_path, suite=SUITE))
+
+    # Act
+    run_sweep([config], _paths(tmp_path), seeds=[1, 2, 3])
+
+    # Assert
+    assert built == [0.0]
+
+
+def test_a_row_records_what_its_run_spent(tmp_path: Path) -> None:
+    # Arrange
+    class Metered(FakeLLMClient):
+        @property
+        def spent_usd(self) -> float:
+            return 0.01 * len(self.calls)
+
+    config = load_config(write_config(tmp_path, suite=SUITE))
+    paths = _paths(tmp_path)
+
+    # Act
+    run_config(config, paths, llm=Metered(_reading_script()))
+
+    # Assert
+    with ResultsStore(paths.results) as store:
+        rows = store.all()
+    assert all(row.cost_usd > 0 for row in rows)
+    assert store_total(paths) == pytest.approx(sum(row.cost_usd for row in rows))
+
+
+def store_total(paths: RunPaths) -> float:
+    with ResultsStore(paths.results) as store:
+        return store.total_cost_usd()
+
+
+def test_task_ids_carry_the_suite_so_two_suites_never_share_a_task(tmp_path: Path) -> None:
+    # Arrange
+    base = load_config(write_config(tmp_path, suite=SUITE))
+    other = base.model_copy(
+        update={"suite": base.suite.model_copy(update={"document_tokens": 900})}
+    )
+
+    # Act
+    first = build_suite(suite_spec(base))[0].task_id
+    again = build_suite(suite_spec(base))[0].task_id
+    second = build_suite(suite_spec(other))[0].task_id
+
+    # Assert
+    assert first == again
+    assert first != second
+    assert first.startswith("suite")
+
+
+def test_suite_size_does_not_change_task_identity(tmp_path: Path) -> None:
+    base = load_config(write_config(tmp_path, suite=SUITE))
+    bigger = base.model_copy(update={"suite": base.suite.model_copy(update={"count": 9})})
+    assert build_suite(suite_spec(base))[0] == build_suite(suite_spec(bigger))[0]

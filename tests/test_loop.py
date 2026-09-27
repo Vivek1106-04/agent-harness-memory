@@ -15,6 +15,7 @@ from harness.loop import (
     STOP_ANSWERED,
     STOP_MAX_STEPS,
     STOP_PLANNER_TERMINATED,
+    STOP_TOKEN_LIMIT,
     AgentLoop,
     LoopOutcome,
 )
@@ -106,6 +107,7 @@ def _loop(
     actions: list[Action | None],
     max_steps: int = 5,
     sink: MemoryTraceSink | None = None,
+    max_tokens_per_run: int | None = None,
 ) -> AgentLoop:
     return AgentLoop(
         planner=ScriptedPlanner(calls, actions),
@@ -115,6 +117,7 @@ def _loop(
         evaluator=RecordingEvaluator(calls),
         bus=TraceBus("run-1", sink or MemoryTraceSink()),
         max_steps=max_steps,
+        max_tokens_per_run=max_tokens_per_run,
     )
 
 
@@ -354,3 +357,16 @@ def test_padded_documents_make_an_8k_budget_force_recall(tmp_path: Path) -> None
     # Act / Assert
     assert run(NoOpMemory(), tmp_path / "noop") is False
     assert run(OracleMemory(), tmp_path / "oracle") is True
+
+
+def test_the_token_limit_stops_the_run_before_the_next_call() -> None:
+    """limits.max_tokens_per_run is a kill-switch, not a comment in a YAML file."""
+    # Arrange
+    loop = _loop([], [_echo(i) for i in range(10)], max_steps=10, max_tokens_per_run=1)
+
+    # Act
+    outcome = loop.run(_task())
+
+    # Assert
+    assert outcome.stop_reason == STOP_TOKEN_LIMIT
+    assert outcome.steps == 1

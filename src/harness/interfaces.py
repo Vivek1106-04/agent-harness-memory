@@ -126,6 +126,11 @@ class LLMClient(ABC):
     "everything is an interface" property honest.
     """
 
+    @property
+    def spent_usd(self) -> float:
+        """Money spent through this client so far. A local or fake client spends nothing."""
+        return 0.0
+
     @abstractmethod
     def complete(self, window: ContextWindow, max_output_tokens: int) -> str: ...
 

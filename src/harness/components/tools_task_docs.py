@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from harness.interfaces import ToolRuntime
+from harness.prompts import TARGET_KEY
 from harness.registry import register
 from harness.sandbox import SandboxViolationError, resolve_within
 from harness.tasks.generator import ANSWER_TOOL, generate
@@ -60,7 +61,7 @@ class TaskDocumentRuntime(ToolRuntime):
         content = self._documents.get(resolved.name)
         if content is None:
             return self._error(step, action.tool_name, f"no such document {resolved.name!r}")
-        return self._ok(step, READ_TOOL, content)
+        return self._ok(step, READ_TOOL, content, target=path)
 
     def _answer(self, action: Action, step: int) -> Observation:
         text = action.arguments.get("text")
@@ -68,9 +69,14 @@ class TaskDocumentRuntime(ToolRuntime):
             return self._error(step, action.tool_name, "missing required argument 'text'")
         return self._ok(step, ANSWER_TOOL, text)
 
-    def _ok(self, step: int, tool_name: str, content: str) -> Observation:
+    def _ok(
+        self, step: int, tool_name: str, content: str, target: str | None = None
+    ) -> Observation:
         return Observation(
-            step=step, content=content[: self._max_output_chars], tool_name=tool_name
+            step=step,
+            content=content[: self._max_output_chars],
+            tool_name=tool_name,
+            metadata={TARGET_KEY: target} if target is not None else {},
         )
 
     @staticmethod
