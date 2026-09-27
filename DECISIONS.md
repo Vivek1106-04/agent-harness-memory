@@ -401,7 +401,10 @@ usage is absent, and refuses the next call at the limit with `SpendLimitError`. 
 seeded from the results store, so a resumed sweep keeps counting; each row records
 `cost_usd`. The loop stops a run before the next step once `max_tokens_per_run` is used.
 The runner stops the sweep on `SweepAbortedError` and after 3 consecutive failed cells - a
-revoked key or a spent daily quota fails every cell, and grinding on records nothing.
+revoked key or a spent daily quota fails every cell, and grinding on records nothing. The
+streak spans every config of a sweep (a real run of six one-task configs kept going
+because it reset per config). A 429 naming a per-day quota raises `DailyQuotaError` at
+once instead of retrying: flash-lite's free tier is 500 requests a day, about 24 runs.
 **What it cost:** spend inside a run that later raises is counted in-process but not
 recorded, so after a crash-and-resume the meter under-counts by at most one run.
 Prices are paid-tier list prices even on the free tier, so the meter overstates there.
@@ -424,6 +427,93 @@ encoding queries like documents benchmarks a degraded vector memory.
 **What we changed:** `Encoder.encode_queries` applies the model's shipped `query` prompt
 (part of the pinned revision, not tuned here). Vector and Hybrid use it for queries only.
 **Reportable?** yes - fairness to the baseline.
+
+### 2026-09-27 · context · observations show what the action acted on
+**Owner:** Vivek
+**What did not fit:** the first real smoke run re-read `doc_00.txt` 25 times and hit the
+step cap. The prompt showed `[step 3] read_file: <content>` with no file name, and the agent
+sees no other record of its actions - once the listing was evicted it could not tell what
+it had read.
+**What we changed:** tool runtimes put the path in `Observation.metadata["target"]` and
+the shared renderer shows `read_file(doc_03.txt)`. Memory still stores `content` only.
+**Reportable?** yes - a harness defect only a real model could expose.
+
+### 2026-09-27 · llm · empty completions are asked again, twice
+**Owner:** Vivek
+**What did not fit:** gemini-3.5-flash-lite sometimes returns `finish_reason: stop` with
+no content and zero output tokens (1 call in 11 in a probe). Each became an invalid action,
+and three in a row end a run.
+**What we changed:** the client repeats an empty completion up to twice; every attempt is
+metered. Identical in every condition.
+**Reportable?** no - transport robustness.
+
+### 2026-09-27 · tasks · generator v2: the terminal fact is the last document
+**Owner:** Vivek
+**What did not fit:** v1 put all required facts in one contiguous block. Reading in order,
+the real model met both facts together and answered at step 10 - NoOp succeeded, Oracle
+(one sample) did not. `recall_distance` only existed for an agent that kept reading after
+it had the answer.
+**What we changed:** the fact the goal names is the last document; its supporting facts
+end `recall_distance` documents before it. The agent learns what matters only at the end.
+`max_steps` tightened 35 -> 25 (19 reads + list + answer = 21, plus 4) so NoOp cannot
+re-read the corpus to recover what it forgot.
+**What it cost:** an agent that reads out of order can still shorten the gap; the NoOp
+screen strikes any task where that happens.
+**Reportable?** yes - task design; the week-3 gate answered with a real model.
+
+### 2026-09-27 · memory · observations are written as sentence chunks, by the loop
+**Owner:** Vivek
+**What did not fit:** a 900-token document stored whole is retrieved whole. Five items took
+about 4,500 of 8,000 tokens, and since the budget protects memory ahead of history the
+memory conditions kept about three recent steps, lost their place and looped. That
+penalised memory for being present - the opposite of the measurement.
+**What we changed:** `harness/chunking.py` splits every observation into sentences before
+writing, identical for every condition (SPEC section 8 lists chunking as a frozen control).
+Retrieved items are about 20 tokens. Memory segments are labelled `[memory from step N]` so
+the agent can tell a recollection from a fresh read; Oracle now reuses the provenance of
+the read that saw a fact, so its labels match every other condition's.
+**Reportable?** yes - context allocation between memory and history is a design result.
+
+### 2026-09-27 · tasks · the terminal fact adds a suffix; the goal names the documents
+**Owner:** Vivek
+**What did not fit:** in the second real run, graph and episodic answered after reading
+only the supporting fact and were scored correct: in a two-fact chain the answer *was* the
+supporting fact's code, and `site_000_00` / `site_000_01` differ by one digit, so a guess
+landed. Oracle, vector and hybrid instead looped over `doc_00`-`doc_08`: with the listing
+evicted, nothing told the agent how many documents there were.
+**What we changed:** a derived fact is its dependencies' codes followed by a two-digit
+literal of its own, so the answer appears verbatim in no document and a guess fails. The
+goal - never evicted - names the range (`19 documents, doc_00.txt to doc_18.txt`).
+`GENERATOR_VERSION = 2` is part of every task id, so rows from v1 and v2 never merge.
+**Reportable?** yes - a scoring path that rewarded guessing, caught before any data.
+
+### 2026-09-27 · context · a compact action log survives eviction
+**Owner:** Vivek
+**What did not fit:** with the step targets visible, every condition still looped. When the
+budget evicted the oldest observation, it took with it the only record that the action had
+happened: the agent saw reads of doc_01..doc_08, concluded doc_00 was unread, re-read it -
+which evicted doc_01 - and so on. Memory stores document content, not the action record,
+so no condition could escape it.
+**What we changed:** both context managers add one `actions` segment listing every step
+(`2 read_file(doc_00.txt); 3 ...`, about six tokens a step), admitted after memory and
+before observations, counted in the budget and named in `dropped` if it cannot fit. The
+context contract now accounts for it. What the agent did is kept; what it saw is what
+memory and the budget contend over - which is the thing measured.
+**Reportable?** yes - separating action history from observation content is a design result.
+
+### 2026-09-27 · tasks · the pilot runs at 2k with 220-token documents, not 8k with 900
+**Owner:** Vivek
+**What did not fit:** at 8k with 900-token documents, gemini-3.5-flash-lite lost its place
+in about 7k tokens of filler and wandered back even as Oracle - a ceiling that fails
+measures the model, not memory. gemini-3.6-flash and 3.8-flash are capped at 20 requests
+a day on the free tier, so they cannot carry a pilot without billing.
+**What we changed:** the same geometry at a quarter of the scale - about seven documents
+fit either way, so recall pressure is unchanged. Real run, one task: Oracle read doc_00 to
+doc_18 in order and answered correctly in 21 steps; NoOp read the same, learned at doc_18
+what it needed, went back, and ran out of steps. About $0.015 a run.
+**What it cost:** the pilot says nothing about 8k. Experiment 2's budget sweep needs either
+documents scaled with the budget or a stronger model on a paid tier.
+**Reportable?** yes - week-3 question 3 (model capability) answered with evidence.
 
 ---
 

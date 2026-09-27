@@ -28,6 +28,14 @@ class SweepAbortedError(Exception):
     """Raised by a cell when no later cell can succeed either. Stops the sweep."""
 
 
+@dataclass
+class FailureStreak:
+    """Consecutive failed cells. Shared across every config of a sweep, so a sweep of
+    one-task configs still stops when the key or the quota is dead."""
+
+    count: int = 0
+
+
 @dataclass(frozen=True)
 class RunPlanItem:
     """One cell of a sweep. `run_id` is the idempotency key and must be deterministic."""
@@ -57,9 +65,11 @@ class Runner:
         self,
         store: ResultsStore,
         max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
+        streak: FailureStreak | None = None,
     ) -> None:
         self._store = store
         self._max_consecutive_failures = max_consecutive_failures
+        self._streak = streak if streak is not None else FailureStreak()
 
     def pending(self, plan: Sequence[RunPlanItem]) -> list[RunPlanItem]:
         done = self._store.completed_run_ids()
@@ -71,7 +81,6 @@ class Runner:
         execute: Callable[[RunPlanItem], RunResult],
     ) -> RunSummary:
         summary = RunSummary()
-        streak = 0
         for item in plan:
             if self._store.has(item.run_id):
                 summary.skipped.append(item.run_id)
@@ -84,12 +93,12 @@ class Runner:
                 return summary
             except Exception as error:
                 summary.failed.append((item.run_id, f"{type(error).__name__}: {error}"))
-                streak += 1
-                if streak >= self._max_consecutive_failures:
-                    summary.aborted.append(f"{streak} consecutive cells failed")
+                self._streak.count += 1
+                if self._streak.count >= self._max_consecutive_failures:
+                    summary.aborted.append(f"{self._streak.count} consecutive cells failed")
                     return summary
                 continue
-            streak = 0
+            self._streak.count = 0
             if result.run_id != item.run_id:
                 summary.failed.append(
                     (item.run_id, f"execute returned a result for {result.run_id!r}")

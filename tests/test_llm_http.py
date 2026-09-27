@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from harness.llm_http import (
+    DailyQuotaError,
     HttpLLMClient,
     LLMTransportError,
     Pricing,
@@ -563,3 +564,20 @@ def test_every_retried_empty_call_is_metered() -> None:
     client = _priced(lambda request: httpx.Response(200, json=replies.pop(0)))
     client.complete(_window(), max_output_tokens=10)
     assert client.spent_usd == pytest.approx(2.0)
+
+
+def test_a_spent_daily_quota_stops_the_sweep_without_retrying() -> None:
+    # Arrange
+    calls: list[int] = []
+    body = '{"error": {"details": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel"}]}}'
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(429, text=body)
+
+    client = _client(handler, max_attempts=5)
+
+    # Act / Assert
+    with pytest.raises(DailyQuotaError, match="daily request quota"):
+        client.complete(_window(), max_output_tokens=10)
+    assert len(calls) == 1

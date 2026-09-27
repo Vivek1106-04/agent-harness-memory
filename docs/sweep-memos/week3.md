@@ -146,7 +146,15 @@ malformed output, tool-call collapse, or repetition loops.
 | **gemini-3.5-flash-lite** | 1M | correct | no hidden thinking at `minimal`; **selected** |
 | gemini-3.6-flash | 1M | correct | thinks by default; price doubles 1 Jan 2027 |
 
-**Answer:** PENDING the 35-step oracle run - the probe shows format and single-step use only.
+**Real runs, one task each, 27 September** (full chain in DECISIONS.md, 2026-09-27): at 8k
+with 900-token documents, flash-lite lost its place and even Oracle failed; 3.6/3.8-flash are
+capped at 20 requests a day on the free tier. At **2k with 220-token documents** -
+unchanged recall pressure, a quarter of the text - Oracle read all nineteen documents in
+order and answered correctly in 21 steps, and NoOp read the same, went back for the fact it
+had lost, and ran out of steps.
+
+**Answer (provisional, n=1):** gemini-3.5-flash-lite sustains the task at the 2k scale and
+not at 8k. The n=30 bracket confirms or refutes it.
 
 ### 4. What is the real intra-task correlation?
 

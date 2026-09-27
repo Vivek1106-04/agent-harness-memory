@@ -77,9 +77,12 @@ class DocumentReadingPlanner(Planner):
 
     UNKNOWN = "unknown"
 
+    REFERENCE = "the access code for "
+
     def __init__(self, doc_names: list[str], entity: str) -> None:
+        """`entity` is the one the goal asks about; the chain is resolved from the window."""
         self._doc_names = list(doc_names)
-        self._pattern = re.compile(rf"access code for {re.escape(entity)} is (\d+)")
+        self._entity = entity
         self._index = 0
         self._answered = False
 
@@ -91,8 +94,22 @@ class DocumentReadingPlanner(Planner):
         if self._answered:
             return None
         self._answered = True
-        match = self._pattern.search("\n".join(text for _, text in window.segments))
-        return Action(
-            tool_name=ANSWER_TOOL,
-            arguments={"text": match.group(1) if match else self.UNKNOWN},
-        )
+        text = "\n".join(segment for _, segment in window.segments)
+        answer = self._resolve(self._entity, text)
+        return Action(tool_name=ANSWER_TOOL, arguments={"text": answer if answer else self.UNKNOWN})
+
+    def _resolve(self, entity: str, text: str) -> str | None:
+        """The entity's code, following references through facts visible in `text`."""
+        match = re.search(rf"access code for {re.escape(entity)} is (.+?)\.(?:\s|$)", text)
+        if match is None:
+            return None
+        parts = []
+        for part in match.group(1).split(" followed by "):
+            if part.startswith(self.REFERENCE):
+                resolved = self._resolve(part.removeprefix(self.REFERENCE), text)
+                if resolved is None:
+                    return None
+                parts.append(resolved)
+            else:
+                parts.append(part)
+        return "".join(parts)

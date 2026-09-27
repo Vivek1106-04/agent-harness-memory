@@ -11,7 +11,9 @@ Priority order, from most protected to first evicted:
    the structural defence against retrieved content displacing the instructions)
 2. retrieved memory items, in the order the provider ranked them - this is the treatment
    under test, and a budget that drops it first would measure the budget, not the memory
-3. observations, most recent first - recency is the cheapest baseline for relevance, and it
+3. the action log - one short entry per step, so the agent knows what it has done even
+   after the observation that recorded it is gone (see `prompts.render_action_log`)
+4. observations, most recent first - recency is the cheapest baseline for relevance, and it
    is what the agent loses when the horizon grows
 
 An oversized item is skipped rather than truncated: half a fact reads as a whole fact to
@@ -23,9 +25,16 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from harness.interfaces import ContextManager
-from harness.prompts import SYSTEM_INSTRUCTIONS, render_observation
+from harness.prompts import (
+    SYSTEM_INSTRUCTIONS,
+    render_action_log,
+    render_memory,
+    render_observation,
+)
 from harness.registry import register
 from harness.segments import (
+    ACTIONS_ID,
+    ROLE_ACTIONS,
     ROLE_GOAL,
     ROLE_MEMORY,
     ROLE_OBSERVATION,
@@ -79,10 +88,12 @@ class BudgetedContextManager(ContextManager):
 
         dropped: list[str] = []
         memory_segments, used = self._fit(
-            [(memory_id(item.provenance), item.content) for item in retrieved],
+            [(memory_id(item.provenance), render_memory(item)) for item in retrieved],
             used,
             dropped,
         )
+        log = render_action_log(history)
+        log_segments, used = self._fit([(ACTIONS_ID, log)] if log else [], used, dropped)
         recent_first, used = self._fit(
             [(observation_id(obs.step), render_observation(obs)) for obs in reversed(history)],
             used,
@@ -91,6 +102,7 @@ class BudgetedContextManager(ContextManager):
 
         segments = (
             protected
+            + [(ROLE_ACTIONS, text) for text in log_segments]
             + [(ROLE_MEMORY, text) for text in memory_segments]
             + [(ROLE_OBSERVATION, text) for text in reversed(recent_first)]
         )

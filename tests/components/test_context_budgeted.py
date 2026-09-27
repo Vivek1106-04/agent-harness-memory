@@ -8,9 +8,16 @@ from harness.components.context_budgeted import (
     BudgetTooSmallError,
 )
 from harness.interfaces import ContextManager
-from harness.prompts import SYSTEM_INSTRUCTIONS, render_observation
+from harness.prompts import SYSTEM_INSTRUCTIONS, render_memory, render_observation
 from harness.registry import resolve
-from harness.segments import ROLE_MEMORY, ROLE_OBSERVATION, memory_id, observation_id
+from harness.segments import (
+    ACTIONS_ID,
+    ROLE_ACTIONS,
+    ROLE_MEMORY,
+    ROLE_OBSERVATION,
+    memory_id,
+    observation_id,
+)
 from harness.tokens import approx_token_count
 from harness.types import MemoryItem, Observation
 from tests.contracts.context import ContextManagerContract
@@ -61,10 +68,11 @@ def test_budget_binds_when_the_history_is_far_larger_than_it() -> None:
 def test_memory_is_admitted_before_history() -> None:
     """Memory is the treatment; a budget that evicted it first would measure the budget."""
     # Arrange
-    manager = BudgetedContextManager(_floor() + approx_token_count("recalled fact 0"))
+    items = _items(1)
+    manager = BudgetedContextManager(_floor() + approx_token_count(render_memory(items[0])))
 
     # Act
-    window = manager.assemble(GOAL, _observations(5), _items(1))
+    window = manager.assemble(GOAL, _observations(5), items)
 
     # Assert
     roles = [role for role, _ in window.segments]
@@ -176,10 +184,10 @@ def test_every_evicted_segment_is_named_in_dropped() -> None:
         observation_id(obs.step) for obs in observations
     }
     kept = {text for _, text in window.segments}
-    survived = {memory_id(item.provenance) for item in items if item.content in kept} | {
+    survived = {memory_id(item.provenance) for item in items if render_memory(item) in kept} | {
         observation_id(obs.step) for obs in observations if render_observation(obs) in kept
     }
-    named = {entry.split("|", 1)[0] for entry in window.dropped}
+    named = {entry.split("|", 1)[0] for entry in window.dropped} - {ACTIONS_ID}
     assert named == offered - survived
 
 
@@ -199,3 +207,36 @@ def test_a_dropped_entry_names_an_identifier_and_a_reason_only() -> None:
     # Assert
     assert window.dropped == [f"mem:run:9|{REASON_BUDGET}"]
     assert secret not in " ".join(window.dropped)
+
+
+def test_the_action_log_records_every_step_even_once_its_observation_is_evicted() -> None:
+    """Without it the agent re-reads whatever was evicted last, forever."""
+    # Arrange
+    observations = _observations(10)
+    manager = BudgetedContextManager(_floor() + 120)
+
+    # Act
+    window = manager.assemble(GOAL, observations, [])
+
+    # Assert
+    log = next(text for role, text in window.segments if role == ROLE_ACTIONS)
+    assert all(f"{obs.step} " in log for obs in observations)
+    assert any(entry.startswith("obs:") for entry in window.dropped)
+
+
+def test_the_action_log_counts_against_the_budget_and_is_dropped_when_it_cannot_fit() -> None:
+    # Arrange
+    manager = BudgetedContextManager(_floor() + 1)
+
+    # Act
+    window = manager.assemble(GOAL, _observations(3), [])
+
+    # Assert
+    assert all(role != ROLE_ACTIONS for role, _ in window.segments)
+    assert any(entry.startswith(ACTIONS_ID) for entry in window.dropped)
+    assert window.token_count <= manager.token_budget
+
+
+def test_an_empty_history_has_no_action_log() -> None:
+    window = BudgetedContextManager(8000).assemble(GOAL, [], [])
+    assert all(role != ROLE_ACTIONS for role, _ in window.segments)

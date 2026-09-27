@@ -22,6 +22,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from harness.chunking import chunk_text
 from harness.interfaces import ContextManager, Evaluator, MemoryProvider, Planner, ToolRuntime
 from harness.retrieval_metrics import RetrievalTally
 from harness.tasks.generator import ANSWER_TOOL, GeneratedTask
@@ -177,16 +178,25 @@ class AgentLoop:
         return items
 
     def _write(self, observation: Observation, step: int) -> int:
-        """Returns the write-path token cost of storing this observation."""
-        item = MemoryItem(
-            content=observation.content,
-            score=1.0,
-            provenance=f"{self._bus.run_id}:{step}",
-            kind=KIND_FAILURE if observation.error is not None else KIND_EPISODIC,
-        )
-        cost = self._count_tokens(item.content)
-        self._memory.write(item)
+        """Store the observation as sentence chunks; return the write-path token cost.
+
+        Every chunk carries the step's provenance, so a provider that orders by time sees
+        one step, and an observation with no text is still written once, as before.
+        """
+        provenance = f"{self._bus.run_id}:{step}"
+        kind = KIND_FAILURE if observation.error is not None else KIND_EPISODIC
+        chunks = chunk_text(observation.content) or [observation.content]
+        cost = 0
+        for chunk in chunks:
+            cost += self._count_tokens(chunk)
+            self._memory.write(
+                MemoryItem(content=chunk, score=1.0, provenance=provenance, kind=kind)
+            )
         self._bus.emit(
-            LAYER_MEMORY, "write", step, {"provenance": item.provenance}, {"write": cost}
+            LAYER_MEMORY,
+            "write",
+            step,
+            {"provenance": provenance, "chunks": len(chunks)},
+            {"write": cost},
         )
         return cost

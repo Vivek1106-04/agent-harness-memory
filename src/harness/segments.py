@@ -13,6 +13,9 @@ ROLE_SYSTEM = "system"
 ROLE_GOAL = "goal"
 ROLE_MEMORY = "memory"
 ROLE_OBSERVATION = "observation"
+#: One compact line per step taken. See `prompts.render_action_log`.
+ROLE_ACTIONS = "actions"
+ACTIONS_ID = "actions:log"
 
 #: Roles the budget may never evict. See SECURITY.md section 3 - these are also the structural
 #: defence against injected content displacing the instructions.

@@ -61,6 +61,11 @@ EMPTY_COMPLETION_RETRIES = 2
 #: Gemini puts the wait in the error body ("retryDelay": "36s"); others use the header.
 _RETRY_DELAY = re.compile(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"')
 
+HTTP_TOO_MANY_REQUESTS = 429
+#: A 429 whose body names a per-day quota is not transient: Gemini's free tier reports
+#: `GenerateRequestsPerDayPerProjectPerModel-FreeTier`.
+DAILY_QUOTA_MARKER = "PerDay"
+
 #: Status codes worth a second attempt: rate limiting and server-side faults.
 RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 
@@ -82,6 +87,11 @@ class _RetryableStatusError(LLMTransportError):
 
 class SpendLimitError(SweepAbortedError):
     """The configured spend limit is reached. No further call is made."""
+
+
+class DailyQuotaError(SweepAbortedError):
+    """The provider's per-day quota is spent. Retrying today cannot succeed; resume tomorrow
+    or on a paid tier. Gemini names the quota (`...PerDay...`) in the 429 body."""
 
 
 class HttpLLMClient(LLMClient):
@@ -223,6 +233,11 @@ class HttpLLMClient(LLMClient):
         response = self._client.post(
             f"{self._base_url}{COMPLETIONS_PATH}", json=payload, headers=self._headers
         )
+        if response.status_code == HTTP_TOO_MANY_REQUESTS and DAILY_QUOTA_MARKER in response.text:
+            raise DailyQuotaError(
+                f"{self._model}: the provider's daily request quota is spent - rerun the same "
+                "command after it resets (completed runs are skipped) or enable billing"
+            )
         if response.status_code in RETRYABLE_STATUS:
             raise _RetryableStatusError(
                 f"{self._model}: endpoint returned {response.status_code}",

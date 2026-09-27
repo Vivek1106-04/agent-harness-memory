@@ -116,15 +116,18 @@ uv run python -m harness run configs/smoke.yaml --out results/smoke.db --traces 
 uv run python -m harness sweep configs/week3_bracket_noop.yaml configs/week3_bracket_oracle.yaml
 # 3. the pilot: 6 conditions x 2 seeds; bracket rows for seed 1 are reused
 uv run python -m harness sweep configs/week3_bracket_noop.yaml configs/week3_bracket_oracle.yaml \
-    configs/pilot_*_8k.yaml --seeds 1 2
+    configs/pilot_*_2k.yaml --seeds 1 2
 uv run python -m harness report --out docs/sweep-memos/pilot-table.md
 ```
 
 Pinned: `gemini-3.5-flash-lite` with `reasoning_effort: minimal`, Qwen3-Embedding-0.6B at
-sha `97b0c61`. `limits.max_spend_usd` stops the sweep (exit 2); rerunning resumes.
+sha `97b0c61`. `limits.max_spend_usd` or a spent daily quota stops the sweep (exit 2);
+rerunning the same command resumes. The free tier allows 500 requests a day - about 24
+runs - so the bracket takes about 3 days and the pilot about 15; a paid key finishes the
+pilot in hours for about $5.
 
-The week-3 gate is **not yet answered**: everything is pinned and it needs only the paid
-run. Questions, method and decision rules were
+The week-3 gate is **not yet answered at n=30**: everything is pinned, and single-task real
+runs of every condition have been checked by hand (week-3 memo). Questions, method and decision rules were
 recorded in [docs/sweep-memos/week3.md](docs/sweep-memos/week3.md) before any data was
 seen, and the answers go in the same file the day the bracket runs.
 
@@ -135,9 +138,12 @@ the gold facts. `python -m harness sweep` runs several configs under several see
 `python -m harness report` produces the pilot table: success and headroom recovered with
 cluster-bootstrap CIs over tasks, forces-recall screen applied, graph-vs-vector paired.
 
-Documents are padded to `suite.document_tokens: 900`, because one-sentence documents all
-fit in 8k and NoOp solved every task (DECISIONS.md, 2026-09-27). The payload change this
-needed (`TaskSpec.document_tokens`, payload 1.1) is pending the owners' ratification.
+The pilot runs at `token_budget: 2000` with documents padded to `document_tokens: 220`:
+about seven documents fit, so a fact read twelve documents earlier has left the window.
+At 8k with 900-token documents the pinned model lost its place and even the ceiling
+failed; the full chain of findings from the first real runs is in DECISIONS.md
+(2026-09-27) and the week-3 memo. `TaskSpec.document_tokens` (payload 1.1) is the one
+payload change this needed.
 
 Not yet implemented: the `mock_fs` / `repo_edit` task families (after the panel).
 

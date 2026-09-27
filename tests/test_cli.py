@@ -399,3 +399,23 @@ def test_suite_size_does_not_change_task_identity(tmp_path: Path) -> None:
     base = load_config(write_config(tmp_path, suite=SUITE))
     bigger = base.model_copy(update={"suite": base.suite.model_copy(update={"count": 9})})
     assert build_suite(suite_spec(base))[0] == build_suite(suite_spec(bigger))[0]
+
+
+def test_the_failure_streak_spans_every_config_of_a_sweep(tmp_path: Path) -> None:
+    """One-task configs each failing once must still stop the sweep at the limit."""
+    # Arrange
+    base = load_config(write_config(tmp_path, suite={**SUITE, "count": 1}))
+    configs = [
+        base.model_copy(update={"memory": base.memory.model_copy(update={"type": kind})})
+        for kind in ("noop", "oracle", "episodic", "noop")
+    ]
+
+    class Dead(FakeLLMClient):
+        def complete(self, window: object, max_output_tokens: int) -> str:
+            raise RuntimeError("401")
+
+    # Act
+    code = run_sweep(configs, _paths(tmp_path), llm=Dead(["x"]))
+
+    # Assert
+    assert code == EXIT_ABORTED

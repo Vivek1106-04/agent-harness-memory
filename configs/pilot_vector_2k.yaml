@@ -1,18 +1,18 @@
-# Pilot cell: episodic memory at an 8k context budget.
+# Pilot cell: vector memory at a 2k context budget.
 #
 # Identical to configs/week3_bracket_noop.yaml except `memory` and `run_id_prefix`, so the
 # bracket cells double as the pilot's floor and ceiling and their rows are reused rather
 # than re-bought. Run the whole pilot (6 conditions x 2 seeds) with:
 #
 #   uv run python -m harness sweep configs/week3_bracket_noop.yaml \
-#       configs/week3_bracket_oracle.yaml configs/pilot_*_8k.yaml --seeds 1 2
+#       configs/week3_bracket_oracle.yaml configs/pilot_*_2k.yaml --seeds 1 2
 #   uv run python -m harness report --out docs/sweep-memos/pilot-table.md
 #
 # RUNNABLE once GEMINI_API_KEY is in the environment (`set -a; source .env; set +a`).
 
 run:
   seed: 1
-  max_steps: 35
+  max_steps: 25          # 19 reads + list + answer = 21, plus 4 slack: too few to re-read the corpus
   run_id_prefix: pilot
   retrieval_k: 5
 
@@ -21,22 +21,22 @@ run:
 suite:
   count: 30
   chain_length: 2
-  recall_distance: 12   # must exceed what the 8k window still holds, or recall is not forced
+  recall_distance: 12   # must exceed what the window still holds, or recall is not forced
   distractor_density: 0.5
   horizon: 20
   seed: 1000
-  document_tokens: 900  # at 1-sentence docs NoOp solves 30/30 at 8k; threshold ~560 offline
+  document_tokens: 220    # about 7 documents fit in 2k, so a fact 12 back has left the window
 
 planner:
   type: react
-  max_steps: 35
+  max_steps: 25
 
 memory:
-  type: episodic
+  type: vector
 
 context:
   type: budgeted        # budgeted | full
-  token_budget: 8000
+  token_budget: 2000     # sized to the pinned model: at 8k it lost its place (week-3 memo)
 
 tools:
   type: task_docs       # task_docs | local | mock

@@ -17,7 +17,7 @@ import pytest
 
 from harness.interfaces import ContextManager
 from harness.prompts import SYSTEM_INSTRUCTIONS
-from harness.segments import PROTECTED_ROLES
+from harness.segments import ACTIONS_ID, PROTECTED_ROLES, ROLE_ACTIONS
 from harness.tokens import approx_token_count
 from harness.types import MemoryItem, Observation
 
@@ -97,7 +97,12 @@ class ContextManagerContract:
 
         # Assert
         kept = sum(1 for m in markers if any(m in text for _, text in window.segments))
-        assert kept + len(window.dropped) == len(markers)
+        content_dropped = [d for d in window.dropped if not d.startswith(ACTIONS_ID)]
+        assert kept + len(content_dropped) == len(markers)
+        # The action log is a segment too: present, or named in `dropped`.
+        has_log = any(role == ROLE_ACTIONS for role, _ in window.segments)
+        log_dropped = any(d.startswith(ACTIONS_ID) for d in window.dropped)
+        assert has_log != log_dropped
 
     def test_dropped_list_records_identifiers_not_payloads(self, manager: ContextManager) -> None:
         """SECURITY.md section 4 - `dropped` must not write evicted content to disk."""

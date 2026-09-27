@@ -15,12 +15,19 @@ Family `multihop_qa` only in v1. `mock_fs` and `repo_edit` follow once the loop 
 Geometry, and why it is fixed this way:
 
     documents = horizon - 1            one step is reserved for the answer
-    required facts occupy a contiguous block ending `recall_distance` documents
-    from the answer step; every other document is a distractor
+    the terminal fact - the one the goal names - is the LAST document
+    the facts it depends on occupy a contiguous block ending `recall_distance`
+    documents before it; every other document is a distractor
 
-So `recall_distance` is the number of steps between the last required fact and the moment
-it is needed. That gap is the whole point: a task whose fact is still inside the recent
-window is solvable without memory and contributes pure noise. `distractor_density` acts as
+So `recall_distance` is the number of documents between the last supporting fact and the
+moment it is needed: the agent only learns a supporting fact matters when it reads the
+terminal one, at the end. That gap is the whole point: a task whose fact is still inside
+the recent window is solvable without memory and contributes pure noise.
+
+Why the terminal fact is last (v2, 2026-09-27). v1 placed every required fact in one
+contiguous block, so an agent reading in order found the whole chain together and answered
+at once - NoOp solved it in the first real run, and the recall distance only existed for an
+agent that kept reading after it had the answer. `distractor_density` acts as
 a floor on the fraction of documents that are irrelevant, and generation fails loudly when
 the dependency graph is too large for the horizon to honour it.
 """
@@ -39,6 +46,11 @@ ATTRIBUTE = "access code"
 ANSWER_TOOL = "answer"
 VALUE_MIN = 1000
 VALUE_MAX = 9999
+SUFFIX_MIN = 10
+SUFFIX_MAX = 99
+#: Bumped whenever the same spec would generate a different task. Part of every task id,
+#: so rows from two generator versions can never be merged as the same task.
+GENERATOR_VERSION = 2
 #: Characters of the spec digest used to seed the generator's RNG.
 SEED_DIGEST_CHARS = 16
 
@@ -93,16 +105,16 @@ def generate(spec: TaskSpec) -> GeneratedTask:
     terminal = _terminal_node(spec, order)
     entities = _assign_entities(spec, order)
     rng = _rng(spec)
-    values = _resolve_values(spec, order, rng)
+    values, suffixes = _resolve_values(spec, order, rng)
 
     total_docs, first_index = _geometry(spec, len(order))
-    required = _required_facts(order, entities, values, spec, first_index)
+    required = _required_facts(order, entities, values, suffixes, spec, first_index)
     distractors = _distractor_facts(spec, total_docs, required, set(entities.values()), rng)
     documents = _documents(spec, total_docs, required, distractors)
 
     return GeneratedTask(
         spec=spec,
-        goal=_goal(entities[terminal]),
+        goal=_goal(entities[terminal], total_docs),
         documents=documents,
         required=required,
         distractors=distractors,
@@ -174,20 +186,30 @@ def _assign_entities(spec: TaskSpec, order: list[str]) -> dict[str, str]:
     return {node: spec.entity_pool[index] for index, node in enumerate(order)}
 
 
-def _resolve_values(spec: TaskSpec, order: list[str], rng: random.Random) -> dict[str, str]:
-    """A root fact carries a literal code; a derived fact concatenates its dependencies.
+def _resolve_values(
+    spec: TaskSpec, order: list[str], rng: random.Random
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Return (values, suffixes). A root fact carries a literal code; a derived fact is its
+    dependencies' codes concatenated, followed by a literal suffix of its own.
 
     Concatenation rather than arithmetic on purpose: a sum would measure the model's
     arithmetic alongside its recall, and that is a confound we are not funding.
+
+    The suffix (v2) means the answer appears verbatim in no single document. Without it a
+    two-fact chain's answer was the root's code, and a model that answered with the first
+    code it found for a similarly named entity scored a success it had not earned - which
+    is exactly what the first real run did.
     """
     values: dict[str, str] = {}
+    suffixes: dict[str, str] = {}
     for node in order:
         dependencies = spec.fact_dependency_graph.get(node, [])
         if dependencies:
-            values[node] = "".join(values[dep] for dep in dependencies)
+            suffixes[node] = str(rng.randint(SUFFIX_MIN, SUFFIX_MAX))
+            values[node] = "".join(values[dep] for dep in dependencies) + suffixes[node]
         else:
             values[node] = str(rng.randint(VALUE_MIN, VALUE_MAX))
-    return values
+    return values, suffixes
 
 
 def _geometry(spec: TaskSpec, required_count: int) -> tuple[int, int]:
@@ -222,16 +244,19 @@ def _required_facts(
     order: list[str],
     entities: dict[str, str],
     values: dict[str, str],
+    suffixes: dict[str, str],
     spec: TaskSpec,
     first_index: int,
 ) -> tuple[Fact, ...]:
     facts: list[Fact] = []
+    terminal_index = spec.horizon - 2  # the last document; the step after it is the answer
     for offset, node in enumerate(order):
-        index = first_index + offset
+        is_terminal = offset == len(order) - 1
+        index = terminal_index if is_terminal else first_index + offset
         dependencies = spec.fact_dependency_graph.get(node, [])
         if dependencies:
             chain = " followed by ".join(
-                f"the {ATTRIBUTE} for {entities[dep]}" for dep in dependencies
+                [*(f"the {ATTRIBUTE} for {entities[dep]}" for dep in dependencies), suffixes[node]]
             )
             content = f"The {ATTRIBUTE} for {entities[node]} is {chain}."
         else:
@@ -321,9 +346,13 @@ def _doc_name(index: int) -> str:
     return f"doc_{index:02d}.txt"
 
 
-def _goal(entity: str) -> str:
+def _goal(entity: str, total_docs: int) -> str:
+    """Names the document range because the goal is never evicted and a listing is: an
+    agent that has lost the listing otherwise cannot tell how far it has to read, and in
+    the first real run it restarted from the first document instead of reading on."""
     return (
-        f"Find the {ATTRIBUTE} for {entity}. The documents in the workspace hold the facts you "
-        f"need; read them and follow the references between them. When you know the code, call "
-        f"{ANSWER_TOOL} with the code and nothing else."
+        f"Find the {ATTRIBUTE} for {entity}. The workspace holds {total_docs} documents, "
+        f"{_doc_name(0)} to {_doc_name(total_docs - 1)}; together they hold the facts you "
+        f"need. Read them and follow the references between them. When you know the code, "
+        f"call {ANSWER_TOOL} with the code and nothing else."
     )

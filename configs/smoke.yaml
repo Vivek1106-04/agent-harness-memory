@@ -10,7 +10,7 @@
 
 run:
   seed: 1
-  max_steps: 35
+  max_steps: 25          # 19 reads + list + answer = 21, plus 4 slack: too few to re-read the corpus
   run_id_prefix: smoke
   retrieval_k: 5
 
@@ -22,18 +22,18 @@ suite:
   distractor_density: 0.5
   horizon: 20
   seed: 9000             # its own suite, so smoke rows never merge into pilot tasks
-  document_tokens: 900  # at 1-sentence docs NoOp solves 30/30 at 8k; threshold ~560 offline
+  document_tokens: 220    # about 7 documents fit in 2k, so a fact 12 back has left the window
 
 planner:
   type: react
-  max_steps: 35
+  max_steps: 25
 
 memory:
   type: oracle          # noop | oracle | vector | episodic | graph | hybrid
 
 context:
   type: budgeted        # budgeted | full
-  token_budget: 8000
+  token_budget: 2000     # sized to the pinned model: at 8k it lost its place (week-3 memo)
 
 tools:
   type: task_docs       # task_docs | local | mock

@@ -72,14 +72,15 @@ class OracleMemory(MemoryProvider):
         reads in, and because it is stable: a retrieval order that varied run to run would
         be indistinguishable from a real effect in the results.
         """
-        seen = "\n".join(item.content for item in self._written)
-        return [
-            MemoryItem(
-                content=fact.content,
-                score=1.0,
-                provenance=f"oracle:{fact.fact_id}",
-                kind=KIND,
-            )
-            for fact in self._required
-            if fact.content in seen
-        ]
+        items: list[MemoryItem] = []
+        for fact in self._required:
+            source = next((item for item in self._written if fact.content in item.content), None)
+            if source is not None:
+                # The provenance of the observation the fact was read in, so the prompt labels
+                # a ceiling memory exactly as it labels every other condition's.
+                items.append(
+                    MemoryItem(
+                        content=fact.content, score=1.0, provenance=source.provenance, kind=KIND
+                    )
+                )
+        return items

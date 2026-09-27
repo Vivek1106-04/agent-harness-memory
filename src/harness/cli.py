@@ -28,8 +28,8 @@ from harness.interfaces import LLMClient
 from harness.loop import LoopOutcome
 from harness.provenance import build_provenance
 from harness.results import ResultsStore, RunResult
-from harness.runner import Runner, RunPlanItem, RunSummary, build_run_id
-from harness.tasks.generator import generate
+from harness.runner import FailureStreak, Runner, RunPlanItem, RunSummary, build_run_id
+from harness.tasks.generator import GENERATOR_VERSION, generate
 from harness.tasks.suite import SuiteSpec, build_suite
 from harness.trace import JsonlTraceSink, TraceBus
 from harness.types import PAYLOAD_VERSION, RunProvenance, TaskSpec
@@ -68,13 +68,14 @@ def run_sweep(
     """Every config under every seed, seed-major, so an interrupted pilot leaves whole
     replicates rather than one condition finished and another not started."""
     failed = False
+    streak = FailureStreak()
     clients: dict[str, LLMClient] = {}
     replicates: list[int | None] = list(seeds) if seeds else [None]
     for seed in replicates:
         for config in configs:
             cell = config if seed is None else with_seed(config, seed)
             client = llm if llm is not None else _shared_client(cell, paths, clients)
-            summary = run_config(cell, paths, client)
+            summary = run_config(cell, paths, client, streak)
             _report(summary, cell)
             if summary.aborted:
                 print(f"sweep stopped: {summary.aborted[0]}", file=sys.stderr)
@@ -122,6 +123,7 @@ def run_config(
     config: HarnessConfig,
     paths: RunPaths,
     llm: LLMClient | None = None,
+    streak: FailureStreak | None = None,
 ) -> RunSummary:
     """Execute every task in the config's suite, recording one row each.
 
@@ -134,7 +136,7 @@ def run_config(
     try:
         plan = [_plan_item(config, spec) for spec in specs]
         by_id = {item.run_id: spec for item, spec in zip(plan, specs, strict=True)}
-        return Runner(store).run_all(
+        return Runner(store, streak=streak).run_all(
             plan,
             lambda item: _execute(config, paths, client, item, by_id[item.run_id]),
         )
@@ -222,9 +224,13 @@ def suite_spec(config: HarnessConfig) -> SuiteSpec:
     be merged by the report as if they were the same tasks. The digest is over validated
     values, so two configs whose suite blocks differ only in comments share their tasks.
     `count` is left out: task N is the same task whatever the suite's size, so a 30-task
-    suite and the first 30 of a 60-task suite rightly share rows.
+    suite and the first 30 of a 60-task suite rightly share rows. The generator version is
+    in: the same suite block generates different tasks under a different generator.
     """
-    identity = config.suite.model_dump(mode="json", exclude={"count"})
+    identity = {
+        **config.suite.model_dump(mode="json", exclude={"count"}),
+        "generator_version": GENERATOR_VERSION,
+    }
     canonical = json.dumps(identity, sort_keys=True)
     digest = hashlib.sha256(canonical.encode()).hexdigest()[:SUITE_DIGEST_CHARS]
     return SuiteSpec(

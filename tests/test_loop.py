@@ -37,7 +37,7 @@ from tests.tasks.specs import spec
 
 #: Room for the protected segments plus roughly two more segments. Small enough that a fact
 #: read early in the run is gone from the window by the time the answer is due.
-TIGHT_BUDGET_SLACK = 40
+TIGHT_BUDGET_SLACK = 60
 
 
 class RecordingMemory(MemoryProvider):
@@ -263,7 +263,7 @@ def _bracket_outcome(
     )
     loop = AgentLoop(
         planner=DocumentReadingPlanner(
-            [name for name, _ in task.documents], task.required[0].entity
+            [name for name, _ in task.documents], task.required[-1].entity
         ),
         context=BudgetedContextManager(budget),
         memory=memory,
@@ -343,7 +343,7 @@ def test_padded_documents_make_an_8k_budget_force_recall(tmp_path: Path) -> None
     def run(memory: MemoryProvider, sandbox: Path) -> bool:
         loop = AgentLoop(
             planner=DocumentReadingPlanner(
-                [name for name, _ in task.documents], task.required[0].entity
+                [name for name, _ in task.documents], task.required[-1].entity
             ),
             context=BudgetedContextManager(8000),
             memory=memory,
@@ -370,3 +370,32 @@ def test_the_token_limit_stops_the_run_before_the_next_call() -> None:
     # Assert
     assert outcome.stop_reason == STOP_TOKEN_LIMIT
     assert outcome.steps == 1
+
+
+def test_an_observation_is_written_to_memory_one_sentence_at_a_time(tmp_path: Path) -> None:
+    """Chunking is the loop's, not a provider's: every condition stores the same items."""
+    # Arrange
+    written: list[MemoryItem] = []
+
+    class Capturing(NoOpMemory):
+        def write(self, item: MemoryItem) -> None:
+            written.append(item)
+
+    task = generate(spec(document_tokens=60))
+    loop = AgentLoop(
+        planner=DocumentReadingPlanner([task.documents[0][0]], task.required[-1].entity),
+        context=BudgetedContextManager(8000),
+        memory=Capturing(),
+        tools=TaskDocumentRuntime(tmp_path),
+        evaluator=CheckerEvaluator(),
+        bus=TraceBus("chunks", MemoryTraceSink()),
+        max_steps=1,
+    )
+
+    # Act
+    loop.run(task)
+
+    # Assert
+    assert len(written) > 1
+    assert {item.provenance for item in written} == {"chunks:1"}
+    assert " ".join(item.content for item in written) == task.documents[0][1]
