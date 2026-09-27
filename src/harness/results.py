@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS runs (
     model_id           TEXT NOT NULL,
     model_revision     TEXT NOT NULL,
     embedding_model    TEXT NOT NULL,
-    embedding_revision TEXT NOT NULL
+    embedding_revision TEXT NOT NULL,
+    retrieval_precision REAL,
+    retrieval_recall   REAL
 );
 CREATE INDEX IF NOT EXISTS runs_by_condition ON runs (condition, task_id);
 """
@@ -60,6 +62,8 @@ class RunResult:
     model_revision: str
     embedding_model: str
     embedding_revision: str
+    retrieval_precision: float | None = None
+    retrieval_recall: float | None = None
 
 
 class ResultsStore:
@@ -97,9 +101,11 @@ class ResultsStore:
         row = self._connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
         if row is None:
             return None
-        data = dict(row)
-        data["success"] = bool(data["success"])
-        return RunResult(**data)
+        return _result(row)
+
+    def all(self) -> list[RunResult]:
+        rows = self._connection.execute("SELECT * FROM runs ORDER BY run_id").fetchall()
+        return [_result(row) for row in rows]
 
     def count(self) -> int:
         row = self._connection.execute("SELECT COUNT(*) AS n FROM runs").fetchone()
@@ -118,3 +124,9 @@ class ResultsStore:
         tb: TracebackType | None,
     ) -> None:
         self.close()
+
+
+def _result(row: sqlite3.Row) -> RunResult:
+    data = dict(row)
+    data["success"] = bool(data["success"])
+    return RunResult(**data)

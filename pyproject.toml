@@ -24,6 +24,7 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "types-pyyaml",
+    "types-networkx>=3.6.1.20260911",
 ]
 
 # Third-party components register here without forking the harness.

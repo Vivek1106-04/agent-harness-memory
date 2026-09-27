@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from harness.cli import RunPaths, main, run_config
+from harness.cli import RunPaths, main, run_config, run_sweep
 from harness.config import load_config
 from harness.results import ResultsStore
 from harness.tasks.generator import generate
@@ -235,3 +235,70 @@ def test_a_run_id_with_colons_becomes_a_usable_trace_filename(tmp_path: Path) ->
     written = list(paths.traces.glob("*.jsonl"))
     assert len(written) == 1
     assert ":" not in written[0].name
+
+
+def test_a_second_run_seed_is_a_new_replicate_not_a_duplicate(tmp_path: Path) -> None:
+    """Replicates differ only in `run.seed`. Keying rows on the task seed skipped them."""
+    # Arrange
+    first = load_config(write_config(tmp_path, suite=SUITE))
+    second = first.model_copy(update={"run": first.run.model_copy(update={"seed": 2})})
+    paths = _paths(tmp_path)
+
+    # Act
+    run_config(first, paths, llm=FakeLLMClient(_reading_script()))
+    summary = run_config(second, paths, llm=FakeLLMClient(_reading_script()))
+
+    # Assert
+    assert len(summary.executed) == SUITE["count"]
+    with ResultsStore(paths.results) as store:
+        assert store.count() == 2 * SUITE["count"]
+
+
+def test_sweep_runs_every_config_under_every_seed(tmp_path: Path) -> None:
+    # Arrange
+    noop = load_config(write_config(tmp_path, suite=SUITE, memory={"type": "noop"}))
+    oracle = noop.model_copy(update={"memory": noop.memory.model_copy(update={"type": "oracle"})})
+    paths = _paths(tmp_path)
+
+    # Act
+    code = run_sweep([noop, oracle], paths, seeds=[1, 2], llm=FakeLLMClient(_reading_script()))
+
+    # Assert
+    assert code == 0
+    with ResultsStore(paths.results) as store:
+        rows = store.all()
+    assert len(rows) == 2 * 2 * SUITE["count"]
+    assert {(row.condition, row.seed) for row in rows} == {
+        (c, s) for c in ("noop", "oracle") for s in (1, 2)
+    }
+
+
+def test_main_sweep_and_report_produce_a_pilot_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Arrange
+    config_path = write_config(tmp_path, suite=SUITE)
+    monkeypatch.setattr("harness.cli.build_llm", lambda _: FakeLLMClient(_reading_script()))
+    db = tmp_path / "runs.db"
+    common = ["--out", str(db), "--traces", str(tmp_path / "t"), "--sandbox", str(tmp_path)]
+
+    # Act
+    swept = main(["sweep", str(config_path), "--seeds", "1", "2", *common])
+    reported = main(["report", "--db", str(db), "--out", str(tmp_path / "pilot.md")])
+    printed = main(["report", "--db", str(db), "--budget", "4000"])
+
+    # Assert
+    assert (swept, reported, printed) == (0, 0, 0)
+    assert "Preliminary" in (tmp_path / "pilot.md").read_text()
+    assert "| noop | 4 |" in capsys.readouterr().out
+
+
+def test_report_on_an_empty_database_fails_with_a_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Act
+    code = main(["report", "--db", str(tmp_path / "empty.db")])
+
+    # Assert
+    assert code == 1
+    assert "report:" in capsys.readouterr().err

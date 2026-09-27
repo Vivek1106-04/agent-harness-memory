@@ -23,6 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from harness.interfaces import ContextManager, Evaluator, MemoryProvider, Planner, ToolRuntime
+from harness.retrieval_metrics import RetrievalTally
 from harness.tasks.generator import ANSWER_TOOL, GeneratedTask
 from harness.tokens import approx_token_count
 from harness.trace import TraceBus
@@ -55,6 +56,9 @@ class LoopOutcome:
     tokens_write: int
     wall_ms: float
     stop_reason: str
+    #: None when never defined: the agent read no required fact, or memory returned nothing.
+    retrieval_precision: float | None = None
+    retrieval_recall: float | None = None
 
 
 class AgentLoop:
@@ -89,6 +93,7 @@ class AgentLoop:
         self._tools.prepare(task.spec)
 
         history: list[Observation] = []
+        tally = RetrievalTally([fact.content for fact in task.required])
         tokens_read = 0
         tokens_write = 0
         stop_reason = STOP_MAX_STEPS
@@ -96,6 +101,7 @@ class AgentLoop:
 
         for step in range(1, self._max_steps + 1):
             retrieved = self._retrieve(task.goal, step)
+            tally.observe([o.content for o in history], [item.content for item in retrieved])
             window = self._context.assemble(task.goal, history, retrieved)
             tokens_read += window.token_count
             self._bus.emit(
@@ -146,6 +152,8 @@ class AgentLoop:
             tokens_write=tokens_write,
             wall_ms=(time.perf_counter() - started) * 1000.0,
             stop_reason=stop_reason,
+            retrieval_precision=tally.precision,
+            retrieval_recall=tally.recall,
         )
 
     def _retrieve(self, goal: str, step: int) -> list[MemoryItem]:

@@ -64,6 +64,25 @@ Neither cleared blocker touches the four questions below. They stand exactly as 
 
 ---
 
+## Finding before any paid call (27 September)
+
+An offline run of the shipped suite (30 tasks, horizon 20, recall_distance 12), driven by
+the scripted perfect reader in `tests/fakes.py` rather than a model:
+
+| token_budget | NoOp | Episodic | Graph | Oracle |
+|---|---|---|---|---|
+| 8000 | 30/30 | 30/30 | 30/30 | 30/30 |
+| 400 | 30/30 | 0/30 | 30/30 | 30/30 |
+| 300 | 0/30 | 0/30 | 30/30 | 30/30 |
+
+At 8k every document fits in the window, so NoOp solves everything and the bracket is
+zero by construction. Running the bracket as configured would spend the quota to learn
+this. This is question 1 answered in advance for the current geometry: **narrow**, and
+the decision rule above says redesign the tasks now. The fix (longer documents, a longer
+horizon, or a smaller pilot budget) is a team decision and is not made here.
+
+---
+
 ## The four questions
 
 ### 1. Is the bracket wide enough to detect a difference?

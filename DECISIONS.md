@@ -298,6 +298,76 @@ a shell tool lands - and no shell tool is in scope.
 
 ---
 
+## Week 5 - memory B, retrieval scoring, pilot tooling
+
+### 2026-09-27 · memory · graph entities are extracted lexically, and only identifier-shaped
+**Owner:** Vivek
+**What did not fit:** `GraphMemory` needs entity anchors, and the runtime loop queries with
+the goal text alone - `MemoryQuery.entities` is never filled by any caller.
+**What we changed:** anchors come from `query.entities` when given, else from the query
+text, via a deterministic regex that recognises identifier-shaped names (`site_003_01`).
+An LLM extractor was rejected: model tokens on the write path and nondeterminism in the
+index would both land inside the measured number.
+**What it cost:** the extractor matches the surface form `tasks.suite` gives entities.
+Plain-word entities (`alpha`) are invisible to it, and it will need replacing for
+LongMemEval-S. Graph memory is therefore advantaged by knowing the entity format while the
+vector encoder is generic.
+**Reportable?** yes - threat to validity; state it next to any graph-vs-vector number.
+
+### 2026-09-27 · memory · the configured `hops` is a floor the query can only raise
+**Owner:** Vivek
+**What did not fit:** the loop always sends the default `hops=1`, so a query-only depth
+would make the config's `hops` a dead setting.
+**What we changed:** depth = max(query.hops, configured hops).
+**Reportable?** no.
+
+### 2026-09-27 · memory · HybridMemory fuses by reciprocal rank, not a weighted sum
+**Owner:** Vivek
+**What did not fit:** cosine and hop count are on incomparable scales, and any weight is a
+tuning knob spent on one condition only (effort confound). Wrapping VectorMemory and
+GraphMemory was out of scope (SPEC section 12).
+**What we changed:** hybrid owns both indices, sharing `harness/entity_graph.py` with
+`GraphMemory`, and fuses with RRF at the literature constant k=60, untuned.
+**Reportable?** yes - methodology.
+
+### 2026-09-27 · runner · replicates were keyed on the task seed and silently collided
+**Owner:** Vivek
+**What did not fit:** `run_id` used the task seed, which `run.seed` does not change. A
+second replicate of a config resolved to the same run ids as the first and was skipped
+as already done - a pilot at "2 seeds" would have been 1 seed with no error.
+**What we changed:** `run_id` and the `seed` column carry `run.seed`. `harness sweep
+--seeds 1 2` overrides it per replicate; the seed is hashed, so provenance records it.
+**What it cost:** at `temperature: 0.0`, and with no seed sent to the endpoint, two
+replicates differ only by provider nondeterminism. Question 4 of the week-3 memo
+(intra-task correlation across seeds) cannot be answered honestly until that is settled.
+**Reportable?** yes - the harness caught a measurement bug before any data existed.
+
+### 2026-09-27 · evaluator · retrieval precision and recall are scored by the loop
+**Owner:** Vivek
+**What we changed:** `RetrievalTally` scores each step once a required fact has been read,
+by content containment - the same test `OracleMemory` applies, so the ceiling is 1.0 on
+both by construction. Stored per run as nullable columns.
+**Reportable?** yes - it separates memory quality from agent quality (SPEC section 10).
+
+### 2026-09-27 · tasks · at 8k, the shipped suite geometry does not force recall
+**Owner:** Vivek
+**What did not fit:** an offline run with a perfect reader and no memory solves 30/30
+tasks at `token_budget: 8000`. Twenty one-sentence documents fit in the window many
+times over, so the bracket is zero and the forces-recall screen would strike every task.
+The static gate in `tasks/forces_recall.py` would have said so, but no runner calls it.
+**What we changed:** nothing yet - task design is a team decision. See week-3 memo.
+**Reportable?** yes - the week-3 gate doing its job before a single paid call.
+
+### 2026-09-27 · process · all four real memories were written by one author
+**Owner:** Vivek
+**What did not fit:** PLAN.md pairs memory owners to control the effort confound. Graph
+and Hybrid were written in the same session as Vector and Episodic, by the same author.
+**What it cost:** the pairing control is gone for this pilot. Paired review of
+GraphMemory/HybridMemory by Muni + Jugal before the numbers are reported restores part of it.
+**Reportable?** yes - threats to validity.
+
+---
+
 ## Open questions to resolve by the week-2 freeze
 
 - ~~Does `MemoryItem` need a `timestamp` distinct from the step index in `provenance`?~~
