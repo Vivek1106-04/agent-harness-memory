@@ -322,3 +322,35 @@ def test_retrieval_scores_bracket_the_same_way_success_does(tmp_path: Path) -> N
     assert (ceiling.retrieval_precision, ceiling.retrieval_recall) == (1.0, 1.0)
     assert floor.retrieval_precision is None
     assert floor.retrieval_recall == 0.0
+
+
+def test_padded_documents_make_an_8k_budget_force_recall(tmp_path: Path) -> None:
+    """Regression for the week-3 finding: one-sentence documents all fit in 8k, so NoOp
+    solved every task. Padded to the shipped `document_tokens`, the floor fails again."""
+    # Arrange
+    subject = spec(
+        graph={"n_1": ["n_0"]},
+        recall_distance=12,
+        horizon=20,
+        pool=[f"site_000_{slot:02d}" for slot in range(10)],
+        document_tokens=900,
+    )
+    task = generate(subject)
+
+    def run(memory: MemoryProvider, sandbox: Path) -> bool:
+        loop = AgentLoop(
+            planner=DocumentReadingPlanner(
+                [name for name, _ in task.documents], task.required[0].entity
+            ),
+            context=BudgetedContextManager(8000),
+            memory=memory,
+            tools=TaskDocumentRuntime(sandbox),
+            evaluator=CheckerEvaluator(),
+            bus=TraceBus("padded", MemoryTraceSink()),
+            max_steps=35,
+        )
+        return loop.run(task).verdict.success
+
+    # Act / Assert
+    assert run(NoOpMemory(), tmp_path / "noop") is False
+    assert run(OracleMemory(), tmp_path / "oracle") is True

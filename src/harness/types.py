@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-PAYLOAD_VERSION = "1.0"
+PAYLOAD_VERSION = "1.1"  # 1.1: TaskSpec.document_tokens added, with a default
 
 
 @dataclass(frozen=True)
@@ -99,6 +99,8 @@ class TaskSpec:
     horizon: int
     entity_pool: list[str]
     seed: int
+    #: Approximate length every document is padded to. 0 = one sentence per document.
+    document_tokens: int = 0
 
 
 @dataclass(frozen=True)

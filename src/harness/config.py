@@ -103,6 +103,9 @@ class SuiteConfig(_Strict):
     distractor_density: float = Field(ge=0.0, lt=1.0)
     horizon: int = Field(ge=2)
     seed: int
+    #: Pad every document to about this many tokens, so the budget binds on documents
+    #: rather than on sentences. 0 keeps one sentence per document.
+    document_tokens: int = Field(default=0, ge=0)
 
 
 class HarnessConfig(_Strict):

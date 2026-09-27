@@ -126,8 +126,9 @@ the gold facts. `python -m harness sweep` runs several configs under several see
 `python -m harness report` produces the pilot table: success and headroom recovered with
 cluster-bootstrap CIs over tasks, forces-recall screen applied, graph-vs-vector paired.
 
-**Open before the pilot:** at `token_budget: 8000` the shipped suite does not force recall
-(see DECISIONS.md, 2026-09-27). The task geometry or the pilot budget has to change first.
+Documents are padded to `suite.document_tokens: 900`, because one-sentence documents all
+fit in 8k and NoOp solved every task (DECISIONS.md, 2026-09-27). The payload change this
+needed (`TaskSpec.document_tokens`, payload 1.1) is pending the owners' ratification.
 
 Not yet implemented: the `mock_fs` / `repo_edit` task families (after the panel).
 

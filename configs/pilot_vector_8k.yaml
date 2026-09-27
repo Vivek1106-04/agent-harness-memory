@@ -25,6 +25,7 @@ suite:
   distractor_density: 0.5
   horizon: 20
   seed: 1000
+  document_tokens: 900  # at 1-sentence docs NoOp solves 30/30 at 8k; threshold ~560 offline
 
 planner:
   type: react

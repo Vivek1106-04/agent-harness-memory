@@ -196,6 +196,7 @@ def _suite_spec(config: HarnessConfig) -> SuiteSpec:
         recall_distance=config.suite.recall_distance,
         distractor_density=config.suite.distractor_density,
         horizon=config.suite.horizon,
+        document_tokens=config.suite.document_tokens,
     )
 
 

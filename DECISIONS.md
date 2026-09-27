@@ -355,7 +355,17 @@ both by construction. Stored per run as nullable columns.
 tasks at `token_budget: 8000`. Twenty one-sentence documents fit in the window many
 times over, so the bracket is zero and the forces-recall screen would strike every task.
 The static gate in `tasks/forces_recall.py` would have said so, but no runner calls it.
-**What we changed:** nothing yet - task design is a team decision. See week-3 memo.
+**What we changed:** documents are padded with inert filler to `suite.document_tokens`
+(900 in every bracket and pilot config), the fact buried at a seeded position. Offline at
+8k with the perfect reader: NoOp 0/30, Oracle 30/30; NoOp stops solving between 550 and
+700, so 900 leaves margin. Padding uses its own RNG stream, so `document_tokens: 0`
+reproduces every earlier suite byte for byte, and codes and entities never change.
+**Payload change:** `TaskSpec.document_tokens: int = 0` was added and `PAYLOAD_VERSION`
+bumped 1.0 -> 1.1. Adding a defaulted field is allowed within a major version, but
+AGENTS.md rule 1 asks for an issue and all four owners' agreement. **Pending ratification.**
+**What it cost:** filler dilutes a document's embedding but not its entity links, so
+padding widens the gap between vector and graph retrieval. Realistic, and it compounds the
+extractor caveat above - report them together.
 **Reportable?** yes - the week-3 gate doing its job before a single paid call.
 
 ### 2026-09-27 · process · all four real memories were written by one author

@@ -47,6 +47,7 @@ class SuiteSpec:
     family: str = FAMILY_MULTIHOP_QA
     task_id_prefix: str = "task"
     pool_padding: int = DEFAULT_POOL_PADDING
+    document_tokens: int = 0
 
 
 def build_suite(suite: SuiteSpec) -> list[TaskSpec]:
@@ -73,6 +74,7 @@ def _task_spec(suite: SuiteSpec, index: int) -> TaskSpec:
         #: Offset rather than shared, so the same suite gives every task different codes
         #: while the suite as a whole stays reproducible from one number.
         seed=suite.seed + index,
+        document_tokens=suite.document_tokens,
     )
 
 
