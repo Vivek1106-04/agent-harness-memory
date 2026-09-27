@@ -34,7 +34,7 @@ from harness.interfaces import (
     Planner,
     ToolRuntime,
 )
-from harness.llm_http import HttpLLMClient
+from harness.llm_http import HttpLLMClient, Pricing
 from harness.loop import AgentLoop
 from harness.registry import resolve
 from harness.trace import TraceBus
@@ -60,8 +60,16 @@ class BuiltRun:
     condition: str
 
 
-def build_llm(config: HarnessConfig, env: dict[str, str] | None = None) -> HttpLLMClient:
-    """One client for both providers: they differ in a base URL and a key, not in code."""
+def build_llm(
+    config: HarnessConfig,
+    env: dict[str, str] | None = None,
+    already_spent_usd: float = 0.0,
+) -> HttpLLMClient:
+    """One client for both providers: they differ in a base URL and a key, not in code.
+
+    `already_spent_usd` is what the results store has recorded, so the spend limit counts
+    across resumed sweeps rather than restarting at zero each time.
+    """
     return HttpLLMClient.from_env(
         base_url=config.llm.base_url,
         model=config.llm.model,
@@ -70,6 +78,13 @@ def build_llm(config: HarnessConfig, env: dict[str, str] | None = None) -> HttpL
         timeout_s=config.llm.timeout_s,
         max_attempts=config.llm.max_attempts,
         env=env,
+        reasoning_effort=config.llm.reasoning_effort,
+        pricing=Pricing(
+            input_usd_per_m=config.llm.price_input_usd_per_m,
+            output_usd_per_m=config.llm.price_output_usd_per_m,
+            max_spend_usd=config.limits.max_spend_usd,
+            already_spent_usd=already_spent_usd,
+        ),
     )
 
 
@@ -115,6 +130,7 @@ def build_loop(
         bus=bus,
         max_steps=config.run.max_steps,
         retrieval_k=config.run.retrieval_k,
+        max_tokens_per_run=config.limits.max_tokens_per_run,
         count_tokens=counter,
     )
     return BuiltRun(loop=loop, token_budget=context.token_budget, condition=config.memory.type)

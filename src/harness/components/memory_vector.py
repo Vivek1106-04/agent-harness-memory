@@ -50,7 +50,7 @@ class VectorMemory(MemoryProvider):
         if not query.text:
             return self._recent(limit)
 
-        scores = np.stack(self._vectors) @ self._encoder.encode([query.text])[0]
+        scores = np.stack(self._vectors) @ self._encoder.encode_queries([query.text])[0]
         return [self._scored(index, scores[index]) for index in self._ranked(scores, limit)]
 
     def reset(self) -> None:

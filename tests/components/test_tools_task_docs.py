@@ -130,3 +130,16 @@ def test_an_unprepared_runtime_serves_nothing(tmp_path: Path) -> None:
 
     # Assert
     assert observation.error is not None
+
+
+def test_a_read_records_its_target_for_the_prompt(tmp_path: Path) -> None:
+    from harness.prompts import TARGET_KEY
+    from harness.tasks.generator import generate
+    from harness.types import Action
+    from tests.tasks.specs import spec
+
+    runtime = TaskDocumentRuntime(tmp_path)
+    runtime.prepare(spec())
+    name = generate(spec()).documents[0][0]
+    observation = runtime.execute(Action("read_file", {"path": name}), step=1)
+    assert observation.metadata == {TARGET_KEY: name}

@@ -6,7 +6,7 @@ from typing import Any, ClassVar
 import numpy as np
 import pytest
 
-from harness.embedding import MIN_NORM, SentenceTransformerEncoder, l2_normalise
+from harness.embedding import MIN_NORM, SentenceTransformerEncoder, l2_normalise, load_model
 
 
 class _StubModel:
@@ -14,12 +14,18 @@ class _StubModel:
 
     built: ClassVar[list[_StubModel]] = []
 
+    prompts: ClassVar[dict[str, str]] = {"query": "Query:", "document": ""}
+
     def __init__(self, name: str, revision: str) -> None:
         self.name = name
         self.revision = revision
+        self.prompt_names: list[str | None] = []
         type(self).built.append(self)
 
-    def encode(self, texts: list[str], convert_to_numpy: bool = True) -> Any:
+    def encode(
+        self, texts: list[str], convert_to_numpy: bool = True, prompt_name: str | None = None
+    ) -> Any:
+        self.prompt_names.append(prompt_name)
         return np.array([[float(len(text)), 1.0] for text in texts], dtype=np.float32)
 
 
@@ -27,6 +33,7 @@ class _StubModel:
 def stub_sentence_transformers(monkeypatch: pytest.MonkeyPatch) -> type[_StubModel]:
     """Install a stub module so no test ever downloads a model or touches the network."""
     _StubModel.built = []
+    load_model.cache_clear()
     module = type("_Module", (), {"SentenceTransformer": _StubModel})
     monkeypatch.setitem(sys.modules, "sentence_transformers", module)
     return _StubModel
@@ -116,3 +123,43 @@ def test_the_pinned_revision_reaches_the_model(
     # Assert
     assert stub_sentence_transformers.built[0].revision == "pinned-revision"
     assert stub_sentence_transformers.built[0].name == "some/model"
+
+
+def test_queries_carry_the_models_query_prompt_and_documents_do_not(
+    stub_sentence_transformers: type[_StubModel],
+) -> None:
+    # Arrange
+    encoder = SentenceTransformerEncoder("some/model", "abc123")
+
+    # Act
+    encoder.encode(["a document"])
+    encoder.encode_queries(["a question"])
+
+    # Assert
+    assert stub_sentence_transformers.built[0].prompt_names == [None, "query"]
+
+
+def test_a_model_without_a_query_prompt_encodes_queries_plainly(
+    stub_sentence_transformers: type[_StubModel], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange
+    monkeypatch.setattr(_StubModel, "prompts", {})
+    encoder = SentenceTransformerEncoder("some/model", "abc123")
+
+    # Act
+    encoder.encode_queries(["a question"])
+
+    # Assert
+    assert stub_sentence_transformers.built[0].prompt_names == [None]
+
+
+def test_the_loaded_model_is_shared_across_encoders(
+    stub_sentence_transformers: type[_StubModel],
+) -> None:
+    """The builder makes an encoder per run; the model must not reload per run."""
+    # Act
+    SentenceTransformerEncoder("some/model", "abc123").encode(["one"])
+    SentenceTransformerEncoder("some/model", "abc123").encode(["two"])
+
+    # Assert
+    assert len(stub_sentence_transformers.built) == 1

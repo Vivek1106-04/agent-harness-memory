@@ -223,3 +223,10 @@ def test_interval_on_all_undefined_draws_is_nan() -> None:
     # Assert
     assert interval.estimate == 0.5
     assert math.isnan(interval.low) and math.isnan(interval.high)
+
+
+def test_the_same_cell_recorded_twice_is_refused() -> None:
+    """Same condition, task and seed under two prefixes is not two replicates."""
+    rows = [_row("graph", "t0", True), _row("graph", "t0", False)]
+    with pytest.raises(AnalysisError, match="duplicate rows"):
+        analyse(rows)

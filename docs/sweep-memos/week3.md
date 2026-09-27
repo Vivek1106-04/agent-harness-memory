@@ -91,8 +91,17 @@ the hashing test encoder, not Qwen3, so treat those two rows as indicative only)
 | 700 | 0/30 | 0/30 | 8/30 | 30/30 | 30/30 | 30/30 |
 | **900 (shipped)** | **0/30** | 0/30 | 6/30 | 30/30 | 30/30 | **30/30** |
 
-The bracket is now full width with a perfect reader. Whether a real model reaches the
-ceiling is still question 2, and still needs the paid run.
+Re-run on the shipped pilot suite (suite-digest task ids) with the **real** pinned
+Qwen3-Embedding-0.6B for vector and hybrid, same scripted reader, 8k:
+
+| NoOp | Episodic | Vector | Graph | Hybrid | Oracle |
+|---|---|---|---|---|---|
+| 0/30 | 0/30 | 10/30 | 30/30 | 30/30 | 30/30 |
+| recall 0.00 | 0.42 | 0.46 | 1.00 | 0.98 | 1.00 |
+
+The bracket is full width with a perfect reader and the conditions separate. Whether a
+real model reaches the ceiling is still question 2, and still needs the paid run. Graph's
+lead here is partly the entity-extractor advantage in DECISIONS.md, 2026-09-27.
 
 ---
 
@@ -128,7 +137,24 @@ malformed output, tool-call collapse, or repetition loops.
 **Hard constraint.** The model must have **>= 128k context**. On a 32k model, Experiment 2's
 "uncapped" cell collapses into its 32k cell and the sweep loses its top end.
 
-**Answer:** PENDING - candidate models and their context lengths to be recorded here.
+**Candidates, probed 2026-09-27** (one two-fact ReAct prompt each, not yet the 35-step run):
+
+| Model | Context | Result | Note |
+|---|---|---|---|
+| gemini-2.5-flash / -flash-lite | 1M | 404 | closed to new keys |
+| gemini-3.1-flash-lite | 1M | wrong | read a document instead of using facts already given |
+| **gemini-3.5-flash-lite** | 1M | correct | no hidden thinking at `minimal`; **selected** |
+| gemini-3.6-flash | 1M | correct | thinks by default; price doubles 1 Jan 2027 |
+
+**Real runs, one task each, 27 September** (full chain in DECISIONS.md, 2026-09-27): at 8k
+with 900-token documents, flash-lite lost its place and even Oracle failed; 3.6/3.8-flash are
+capped at 20 requests a day on the free tier. At **2k with 220-token documents** -
+unchanged recall pressure, a quarter of the text - Oracle read all nineteen documents in
+order and answered correctly in 21 steps, and NoOp read the same, went back for the fact it
+had lost, and ran out of steps.
+
+**Answer (provisional, n=1):** gemini-3.5-flash-lite sustains the task at the 2k scale and
+not at 8k. The n=30 bracket confirms or refutes it.
 
 ### 4. What is the real intra-task correlation?
 

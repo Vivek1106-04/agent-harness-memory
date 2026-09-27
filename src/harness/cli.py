@@ -15,6 +15,8 @@ Resume is the default and not a flag. A sweep interrupted at task 19 of 30 conti
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,8 +28,8 @@ from harness.interfaces import LLMClient
 from harness.loop import LoopOutcome
 from harness.provenance import build_provenance
 from harness.results import ResultsStore, RunResult
-from harness.runner import Runner, RunPlanItem, RunSummary, build_run_id
-from harness.tasks.generator import generate
+from harness.runner import FailureStreak, Runner, RunPlanItem, RunSummary, build_run_id
+from harness.tasks.generator import GENERATOR_VERSION, generate
 from harness.tasks.suite import SuiteSpec, build_suite
 from harness.trace import JsonlTraceSink, TraceBus
 from harness.types import PAYLOAD_VERSION, RunProvenance, TaskSpec
@@ -35,6 +37,9 @@ from harness.types import PAYLOAD_VERSION, RunProvenance, TaskSpec
 DEFAULT_RESULTS_PATH = Path("results/runs.db")
 DEFAULT_TRACE_DIR = Path("results/traces")
 DEFAULT_SANDBOX_ROOT = Path(".sandbox")
+#: Distinct from 1 (some cells failed): the sweep stopped early and has cells left to run.
+EXIT_ABORTED = 2
+SUITE_DIGEST_CHARS = 8
 
 
 @dataclass(frozen=True)
@@ -63,14 +68,33 @@ def run_sweep(
     """Every config under every seed, seed-major, so an interrupted pilot leaves whole
     replicates rather than one condition finished and another not started."""
     failed = False
+    streak = FailureStreak()
+    clients: dict[str, LLMClient] = {}
     replicates: list[int | None] = list(seeds) if seeds else [None]
     for seed in replicates:
         for config in configs:
             cell = config if seed is None else with_seed(config, seed)
-            summary = run_config(cell, paths, llm)
+            client = llm if llm is not None else _shared_client(cell, paths, clients)
+            summary = run_config(cell, paths, client, streak)
             _report(summary, cell)
+            if summary.aborted:
+                print(f"sweep stopped: {summary.aborted[0]}", file=sys.stderr)
+                return EXIT_ABORTED
             failed = failed or bool(summary.failed)
     return 1 if failed else 0
+
+
+def _shared_client(
+    config: HarnessConfig, paths: RunPaths, clients: dict[str, LLMClient]
+) -> LLMClient:
+    """One client per distinct `llm` block, so the spend meter spans the whole sweep, seeded
+    with what the results store already recorded so a resumed sweep keeps counting."""
+    key = config.llm.model_dump_json()
+    if key not in clients:
+        with ResultsStore(paths.results) as store:
+            spent = store.total_cost_usd()
+        clients[key] = build_llm(config, already_spent_usd=spent)
+    return clients[key]
 
 
 def with_seed(config: HarnessConfig, seed: int) -> HarnessConfig:
@@ -99,19 +123,20 @@ def run_config(
     config: HarnessConfig,
     paths: RunPaths,
     llm: LLMClient | None = None,
+    streak: FailureStreak | None = None,
 ) -> RunSummary:
     """Execute every task in the config's suite, recording one row each.
 
     `llm` is injectable so the whole path is testable without a network. Left out, it is
     built from the config and the key named by `llm.api_key_env`.
     """
-    specs = build_suite(_suite_spec(config))
-    client = llm if llm is not None else build_llm(config)
+    specs = build_suite(suite_spec(config))
     store = ResultsStore(paths.results)
+    client = llm if llm is not None else build_llm(config, already_spent_usd=store.total_cost_usd())
     try:
         plan = [_plan_item(config, spec) for spec in specs]
         by_id = {item.run_id: spec for item, spec in zip(plan, specs, strict=True)}
-        return Runner(store).run_all(
+        return Runner(store, streak=streak).run_all(
             plan,
             lambda item: _execute(config, paths, client, item, by_id[item.run_id]),
         )
@@ -127,6 +152,7 @@ def _execute(
     spec: TaskSpec,
 ) -> RunResult:
     provenance = build_provenance(item.run_id, config)
+    spent_before = llm.spent_usd
     sink = JsonlTraceSink(paths.traces / f"{_safe_name(item.run_id)}.jsonl")
     try:
         bus = TraceBus(item.run_id, sink)
@@ -135,7 +161,7 @@ def _execute(
         outcome = built.loop.run(generate(spec))
     finally:
         sink.close()
-    return _row(provenance, item, built, outcome)
+    return _row(provenance, item, built, outcome, llm.spent_usd - spent_before)
 
 
 def _row(
@@ -143,6 +169,7 @@ def _row(
     item: RunPlanItem,
     built: BuiltRun,
     outcome: LoopOutcome,
+    cost_usd: float = 0.0,
 ) -> RunResult:
     """Every identity column is taken from the header the trace already carries, so a row
     and its trace can never disagree about which run produced them."""
@@ -167,6 +194,7 @@ def _row(
         embedding_revision=provenance.embedding_revision,
         retrieval_precision=outcome.retrieval_precision,
         retrieval_recall=outcome.retrieval_recall,
+        cost_usd=cost_usd,
     )
 
 
@@ -188,8 +216,25 @@ def _plan_item(config: HarnessConfig, spec: TaskSpec) -> RunPlanItem:
     )
 
 
-def _suite_spec(config: HarnessConfig) -> SuiteSpec:
+def suite_spec(config: HarnessConfig) -> SuiteSpec:
+    """The config's task set. Task ids are prefixed with a digest of the suite block.
+
+    Without it every suite numbers its tasks `task-000` upward, and two different suites
+    recorded in one results store - a smoke run, or a padded and an unpadded suite - would
+    be merged by the report as if they were the same tasks. The digest is over validated
+    values, so two configs whose suite blocks differ only in comments share their tasks.
+    `count` is left out: task N is the same task whatever the suite's size, so a 30-task
+    suite and the first 30 of a 60-task suite rightly share rows. The generator version is
+    in: the same suite block generates different tasks under a different generator.
+    """
+    identity = {
+        **config.suite.model_dump(mode="json", exclude={"count"}),
+        "generator_version": GENERATOR_VERSION,
+    }
+    canonical = json.dumps(identity, sort_keys=True)
+    digest = hashlib.sha256(canonical.encode()).hexdigest()[:SUITE_DIGEST_CHARS]
     return SuiteSpec(
+        task_id_prefix=f"suite{digest}",
         count=config.suite.count,
         seed=config.suite.seed,
         chain_length=config.suite.chain_length,

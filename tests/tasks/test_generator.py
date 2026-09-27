@@ -37,7 +37,16 @@ def test_document_count_reserves_one_step_for_the_answer() -> None:
     assert task.answer_step == 11
 
 
-def test_last_required_fact_sits_recall_distance_from_the_answer() -> None:
+def test_the_terminal_fact_is_the_last_document() -> None:
+    """The agent learns what it needs only at the end, so it cannot answer early."""
+    # Act
+    task = generate(spec(recall_distance=5, horizon=12))
+
+    # Assert
+    assert task.required[-1].index == len(task.documents) - 1
+
+
+def test_last_supporting_fact_sits_recall_distance_before_the_terminal() -> None:
     # Arrange
     subject = spec(recall_distance=5, horizon=12)
 
@@ -45,10 +54,11 @@ def test_last_required_fact_sits_recall_distance_from_the_answer() -> None:
     task = generate(subject)
 
     # Assert
-    assert max(fact.index for fact in task.required) == task.answer_step - 5
+    terminal, supporting = task.required[-1], task.required[:-1]
+    assert terminal.index - max(fact.index for fact in supporting) == 5
 
 
-def test_required_facts_are_contiguous_and_in_dependency_order() -> None:
+def test_supporting_facts_are_contiguous_and_in_dependency_order() -> None:
     # Arrange
     subject = spec(graph={"code": ["middle"], "middle": ["origin"]}, recall_distance=4, horizon=14)
 
@@ -58,7 +68,8 @@ def test_required_facts_are_contiguous_and_in_dependency_order() -> None:
     # Assert
     assert [fact.fact_id for fact in task.required] == ["origin", "middle", "code"]
     indices = [fact.index for fact in task.required]
-    assert indices == list(range(indices[0], indices[0] + 3))
+    assert indices[:2] == [indices[0], indices[0] + 1]
+    assert indices[2] == len(task.documents) - 1
 
 
 def test_answer_is_the_chain_resolved_through_its_dependencies() -> None:
@@ -71,7 +82,19 @@ def test_answer_is_the_chain_resolved_through_its_dependencies() -> None:
     # Assert
     roots = [fact for fact in task.required if fact.fact_id in {"left", "right"}]
     literals = [fact.content.rsplit(" is ", maxsplit=1)[1].rstrip(".") for fact in roots]
-    assert task.answer == "".join(literals)
+    suffix = task.required[-1].content.rsplit(" followed by ", maxsplit=1)[1].rstrip(".")
+    assert task.answer == "".join(literals) + suffix
+
+
+def test_the_answer_appears_verbatim_in_no_single_document() -> None:
+    """A guess of the nearest-looking code must not be scored as recall."""
+    task = generate(spec())
+    assert not any(task.answer in text for _, text in task.documents)
+
+
+def test_the_goal_names_the_document_range() -> None:
+    task = generate(spec(horizon=12))
+    assert "11 documents, doc_00.txt to doc_10.txt" in task.goal
 
 
 def test_derived_fact_names_its_dependencies_rather_than_their_values() -> None:

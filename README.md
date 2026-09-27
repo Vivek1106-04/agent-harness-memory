@@ -50,7 +50,7 @@ uv run ruff format --check .
 uv run mypy src/
 
 # run one task end to end
-uv run python -m harness.cli run --config configs/smoke.yaml
+uv run python -m harness run configs/smoke.yaml --out results/smoke.db --traces results/smoke-traces
 ```
 
 You need an LLM endpoint. Copy `.env.example` to `.env`, fill it in, and load it:
@@ -106,16 +106,28 @@ real sandboxed filesystem, the first two memory providers under test (`VectorMem
 exact cosine, `EpisodicMemory` with time-windowed retrieval), task suites as a pure
 function of the config, and a resumable CLI. 383 tests, 100% coverage on `src/harness/`.
 
-Running a cell:
+Running it, in this order (the key lives in `.env`, never in a config file):
 
 ```bash
-export GEMINI_API_KEY=...                       # never in a config file
-uv run python -m harness run configs/week3_bracket_noop.yaml
-uv run python -m harness run configs/week3_bracket_oracle.yaml
+set -a; source .env; set +a
+# 1. one task, oracle, own database - proves the real path end to end
+uv run python -m harness run configs/smoke.yaml --out results/smoke.db --traces results/smoke-traces
+# 2. the bracket (week-3 gate)
+uv run python -m harness sweep configs/week3_bracket_noop.yaml configs/week3_bracket_oracle.yaml
+# 3. the pilot: 6 conditions x 2 seeds; bracket rows for seed 1 are reused
+uv run python -m harness sweep configs/week3_bracket_noop.yaml configs/week3_bracket_oracle.yaml \
+    configs/pilot_*_2k.yaml --seeds 1 2
+uv run python -m harness report --out docs/sweep-memos/pilot-table.md
 ```
 
-The week-3 gate is **not yet answered**: it now needs only a key and a model pinned in
-`llm.model` / `llm.revision` (>= 128k context). Questions, method and decision rules were
+Pinned: `gemini-3.5-flash-lite` with `reasoning_effort: minimal`, Qwen3-Embedding-0.6B at
+sha `97b0c61`. `limits.max_spend_usd` or a spent daily quota stops the sweep (exit 2);
+rerunning the same command resumes. The free tier allows 500 requests a day - about 24
+runs - so the bracket takes about 3 days and the pilot about 15; a paid key finishes the
+pilot in hours for about $5.
+
+The week-3 gate is **not yet answered at n=30**: everything is pinned, and single-task real
+runs of every condition have been checked by hand (week-3 memo). Questions, method and decision rules were
 recorded in [docs/sweep-memos/week3.md](docs/sweep-memos/week3.md) before any data was
 seen, and the answers go in the same file the day the bracket runs.
 
@@ -126,9 +138,12 @@ the gold facts. `python -m harness sweep` runs several configs under several see
 `python -m harness report` produces the pilot table: success and headroom recovered with
 cluster-bootstrap CIs over tasks, forces-recall screen applied, graph-vs-vector paired.
 
-Documents are padded to `suite.document_tokens: 900`, because one-sentence documents all
-fit in 8k and NoOp solved every task (DECISIONS.md, 2026-09-27). The payload change this
-needed (`TaskSpec.document_tokens`, payload 1.1) is pending the owners' ratification.
+The pilot runs at `token_budget: 2000` with documents padded to `document_tokens: 220`:
+about seven documents fit, so a fact read twelve documents earlier has left the window.
+At 8k with 900-token documents the pinned model lost its place and even the ceiling
+failed; the full chain of findings from the first real runs is in DECISIONS.md
+(2026-09-27) and the week-3 memo. `TaskSpec.document_tokens` (payload 1.1) is the one
+payload change this needed.
 
 Not yet implemented: the `mock_fs` / `repo_edit` task families (after the panel).
 

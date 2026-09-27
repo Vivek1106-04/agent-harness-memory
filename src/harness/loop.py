@@ -22,6 +22,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from harness.chunking import chunk_text
 from harness.interfaces import ContextManager, Evaluator, MemoryProvider, Planner, ToolRuntime
 from harness.retrieval_metrics import RetrievalTally
 from harness.tasks.generator import ANSWER_TOOL, GeneratedTask
@@ -43,6 +44,7 @@ LAYER_EVALUATOR = "evaluator"
 STOP_PLANNER_TERMINATED = "planner_terminated"
 STOP_ANSWERED = "answered"
 STOP_MAX_STEPS = "max_steps"
+STOP_TOKEN_LIMIT = "max_tokens_per_run"  # noqa: S105 - a stop reason, not a secret
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,7 @@ class AgentLoop:
         max_steps: int,
         retrieval_k: int = DEFAULT_RETRIEVAL_K,
         count_tokens: Callable[[str], int] = approx_token_count,
+        max_tokens_per_run: int | None = None,
     ) -> None:
         if max_steps <= 0:
             raise ValueError(f"max_steps must be positive, got {max_steps}")
@@ -85,6 +88,7 @@ class AgentLoop:
         self._max_steps = max_steps
         self._retrieval_k = retrieval_k
         self._count_tokens = count_tokens
+        self._max_tokens_per_run = max_tokens_per_run
 
     def run(self, task: GeneratedTask) -> LoopOutcome:
         started = time.perf_counter()
@@ -100,6 +104,9 @@ class AgentLoop:
         step = 0
 
         for step in range(1, self._max_steps + 1):
+            if self._over_token_limit(tokens_read + tokens_write):
+                stop_reason = STOP_TOKEN_LIMIT
+                break
             retrieved = self._retrieve(task.goal, step)
             tally.observe([o.content for o in history], [item.content for item in retrieved])
             window = self._context.assemble(task.goal, history, retrieved)
@@ -156,6 +163,10 @@ class AgentLoop:
             retrieval_recall=tally.recall,
         )
 
+    def _over_token_limit(self, spent: int) -> bool:
+        """Checked before a step, so no call is made once the run's allowance is used."""
+        return self._max_tokens_per_run is not None and spent >= self._max_tokens_per_run
+
     def _retrieve(self, goal: str, step: int) -> list[MemoryItem]:
         items = self._memory.retrieve(MemoryQuery(text=goal, k=self._retrieval_k))
         self._bus.emit(
@@ -167,16 +178,25 @@ class AgentLoop:
         return items
 
     def _write(self, observation: Observation, step: int) -> int:
-        """Returns the write-path token cost of storing this observation."""
-        item = MemoryItem(
-            content=observation.content,
-            score=1.0,
-            provenance=f"{self._bus.run_id}:{step}",
-            kind=KIND_FAILURE if observation.error is not None else KIND_EPISODIC,
-        )
-        cost = self._count_tokens(item.content)
-        self._memory.write(item)
+        """Store the observation as sentence chunks; return the write-path token cost.
+
+        Every chunk carries the step's provenance, so a provider that orders by time sees
+        one step, and an observation with no text is still written once, as before.
+        """
+        provenance = f"{self._bus.run_id}:{step}"
+        kind = KIND_FAILURE if observation.error is not None else KIND_EPISODIC
+        chunks = chunk_text(observation.content) or [observation.content]
+        cost = 0
+        for chunk in chunks:
+            cost += self._count_tokens(chunk)
+            self._memory.write(
+                MemoryItem(content=chunk, score=1.0, provenance=provenance, kind=kind)
+            )
         self._bus.emit(
-            LAYER_MEMORY, "write", step, {"provenance": item.provenance}, {"write": cost}
+            LAYER_MEMORY,
+            "write",
+            step,
+            {"provenance": provenance, "chunks": len(chunks)},
+            {"write": cost},
         )
         return cost

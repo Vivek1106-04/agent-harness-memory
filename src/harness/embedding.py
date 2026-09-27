@@ -12,6 +12,7 @@ provenance header exists to catch.
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Sequence
 from typing import Any, Protocol
 
@@ -22,12 +23,20 @@ Vectors = npt.NDArray[np.float32]
 
 #: Below this norm a vector is treated as zero and left alone rather than divided by.
 MIN_NORM = 1e-12
+QUERY_PROMPT = "query"
 
 
 class Encoder(Protocol):
-    """Returns one L2-normalised row per input text, shape (len(texts), dim)."""
+    """Returns one L2-normalised row per input text, shape (len(texts), dim).
+
+    Queries and documents are encoded separately because instruction-tuned embedders
+    (Qwen3-Embedding among them) expect a prompt on the query side only. Leaving it off
+    would benchmark a degraded vector memory - the strawman SPEC.md section 11 rules out.
+    """
 
     def encode(self, texts: Sequence[str]) -> Vectors: ...
+
+    def encode_queries(self, texts: Sequence[str]) -> Vectors: ...
 
 
 def l2_normalise(matrix: Vectors) -> Vectors:
@@ -55,14 +64,32 @@ class SentenceTransformerEncoder:
         self._model: Any | None = None
 
     def encode(self, texts: Sequence[str]) -> Vectors:
+        return self._encode(texts, prompt_name=None)
+
+    def encode_queries(self, texts: Sequence[str]) -> Vectors:
+        """With the model's own `query` prompt when it ships one; the prompt is part of the
+        pinned revision, so it is frozen with the model rather than tuned here."""
+        return self._encode(texts, prompt_name=QUERY_PROMPT)
+
+    def _encode(self, texts: Sequence[str], prompt_name: str | None) -> Vectors:
         if not texts:
             return np.zeros((0, 0), dtype=np.float32)
-        raw = self._loaded().encode(list(texts), convert_to_numpy=True)
+        model = self._loaded()
+        if prompt_name is not None and prompt_name not in (getattr(model, "prompts", None) or {}):
+            prompt_name = None
+        raw = model.encode(list(texts), convert_to_numpy=True, prompt_name=prompt_name)
         return l2_normalise(np.asarray(raw, dtype=np.float32))
 
     def _loaded(self) -> Any:
         if self._model is None:
-            from sentence_transformers import SentenceTransformer
-
-            self._model = SentenceTransformer(self._model_name, revision=self._revision)
+            self._model = load_model(self._model_name, self._revision)
         return self._model
+
+
+@functools.cache
+def load_model(model: str, revision: str) -> Any:
+    """One load per process. The builder makes a fresh encoder for every run, and reloading
+    a 0.6B model 360 times would cost more wall time than the pilot's model calls."""
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer(model, revision=revision)

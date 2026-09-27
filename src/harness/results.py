@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS runs (
     embedding_model    TEXT NOT NULL,
     embedding_revision TEXT NOT NULL,
     retrieval_precision REAL,
-    retrieval_recall   REAL
+    retrieval_recall   REAL,
+    cost_usd           REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS runs_by_condition ON runs (condition, task_id);
 """
@@ -64,6 +65,7 @@ class RunResult:
     embedding_revision: str
     retrieval_precision: float | None = None
     retrieval_recall: float | None = None
+    cost_usd: float = 0.0
 
 
 class ResultsStore:
@@ -106,6 +108,13 @@ class ResultsStore:
     def all(self) -> list[RunResult]:
         rows = self._connection.execute("SELECT * FROM runs ORDER BY run_id").fetchall()
         return [_result(row) for row in rows]
+
+    def total_cost_usd(self) -> float:
+        """Spend already recorded. Seeds the spend limit, so a resumed sweep keeps counting."""
+        row = self._connection.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0) AS c FROM runs"
+        ).fetchone()
+        return float(row["c"])
 
     def count(self) -> int:
         row = self._connection.execute("SELECT COUNT(*) AS n FROM runs").fetchone()

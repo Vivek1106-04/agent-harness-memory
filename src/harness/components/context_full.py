@@ -14,9 +14,14 @@ import sys
 from collections.abc import Callable
 
 from harness.interfaces import ContextManager
-from harness.prompts import SYSTEM_INSTRUCTIONS, render_observation
+from harness.prompts import (
+    SYSTEM_INSTRUCTIONS,
+    render_action_log,
+    render_memory,
+    render_observation,
+)
 from harness.registry import register
-from harness.segments import ROLE_GOAL, ROLE_MEMORY, ROLE_OBSERVATION, ROLE_SYSTEM
+from harness.segments import ROLE_ACTIONS, ROLE_GOAL, ROLE_MEMORY, ROLE_OBSERVATION, ROLE_SYSTEM
 from harness.tokens import approx_token_count
 from harness.types import ContextWindow, MemoryItem, Observation
 
@@ -40,7 +45,10 @@ class FullContextManager(ContextManager):
             (ROLE_SYSTEM, SYSTEM_INSTRUCTIONS),
             (ROLE_GOAL, goal),
         ]
-        segments += [(ROLE_MEMORY, item.content) for item in retrieved]
+        log = render_action_log(history)
+        if log:
+            segments.append((ROLE_ACTIONS, log))
+        segments += [(ROLE_MEMORY, render_memory(item)) for item in retrieved]
         segments += [(ROLE_OBSERVATION, render_observation(obs)) for obs in history]
         token_count = sum(self.count_tokens(text) for _, text in segments)
         return ContextWindow(segments=segments, token_count=token_count, dropped=[])

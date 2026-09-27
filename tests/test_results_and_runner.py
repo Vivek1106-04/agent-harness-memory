@@ -3,8 +3,10 @@ from __future__ import annotations
 import contextlib
 from pathlib import Path
 
+import pytest
+
 from harness.results import ResultsStore, RunResult
-from harness.runner import Runner, RunPlanItem, build_run_id
+from harness.runner import Runner, RunPlanItem, SweepAbortedError, build_run_id
 
 
 def _result(run_id: str = "exp1:vector:8000:t1:s1", score: float = 1.0) -> RunResult:
@@ -199,3 +201,69 @@ def test_run_id_is_deterministic_for_a_cell() -> None:
     second = build_run_id("exp1", "graph", "t7", seed=2, token_budget=4000)
     assert first == second
     assert first != build_run_id("exp1", "graph", "t7", seed=3, token_budget=4000)
+
+
+def test_an_abort_stops_the_sweep_at_that_cell(tmp_path: Path) -> None:
+    # Arrange
+    attempted: list[str] = []
+
+    def execute(item: RunPlanItem) -> RunResult:
+        attempted.append(item.run_id)
+        raise SweepAbortedError("spend limit reached")
+
+    # Act
+    with ResultsStore(tmp_path / "r.db") as store:
+        summary = Runner(store).run_all(_plan(3), execute)
+
+    # Assert
+    assert len(attempted) == 1
+    assert summary.aborted == ["spend limit reached"]
+
+
+@pytest.mark.parametrize("limit", [2, 3])
+def test_consecutive_failures_stop_the_sweep(tmp_path: Path, limit: int) -> None:
+    """A dead key or a spent daily quota fails every cell; stop rather than grind on."""
+    # Arrange
+    attempted: list[str] = []
+
+    def execute(item: RunPlanItem) -> RunResult:
+        attempted.append(item.run_id)
+        raise RuntimeError("429")
+
+    # Act
+    with ResultsStore(tmp_path / "r.db") as store:
+        summary = Runner(store, max_consecutive_failures=limit).run_all(_plan(5), execute)
+
+    # Assert
+    assert len(attempted) == limit
+    assert summary.aborted == [f"{limit} consecutive cells failed"]
+
+
+def test_a_success_resets_the_failure_streak(tmp_path: Path) -> None:
+    # Arrange
+    plan = _plan(4)
+    outcomes = iter([RuntimeError("x"), None, RuntimeError("y"), None])
+
+    def execute(item: RunPlanItem) -> RunResult:
+        outcome = next(outcomes)
+        if outcome is not None:
+            raise outcome
+        return _result(item.run_id)
+
+    # Act
+    with ResultsStore(tmp_path / "r.db") as store:
+        summary = Runner(store, max_consecutive_failures=2).run_all(plan, execute)
+
+    # Assert
+    assert summary.aborted == []
+    assert len(summary.executed) == 2
+
+
+def test_total_cost_sums_recorded_runs(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    with ResultsStore(tmp_path / "r.db") as store:
+        assert store.total_cost_usd() == 0.0
+        store.record(replace(_result("a"), cost_usd=0.25))
+        store.record(replace(_result("b"), cost_usd=0.5))
+        assert store.total_cost_usd() == 0.75

@@ -92,19 +92,19 @@ def test_prepared_oracle_honours_k() -> None:
     assert len(results) == 2
 
 
-def test_retrieved_items_carry_oracle_provenance() -> None:
+def test_retrieved_items_carry_the_provenance_of_the_read_that_saw_them() -> None:
     # Arrange
     subject = spec()
     task = generate(subject)
     memory = OracleMemory()
     memory.prepare(subject)
-    memory.write(_observed(task.required[0].content))
+    memory.write(_observed(task.required[0].content, step=4))
 
     # Act
     item = memory.retrieve(MemoryQuery(k=5))[0]
 
     # Assert
-    assert item.provenance == f"oracle:{task.required[0].fact_id}"
+    assert item.provenance == "run:4"
     assert item.kind == "semantic"
 
 

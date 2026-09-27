@@ -1,16 +1,13 @@
-# Week 3 gate, floor cell: NoOpMemory at an 8k context budget.
+# Week 3 gate, floor cell: NoOpMemory at a 2k context budget.
 #
 # The floor of the measurement bracket. Paired with configs/week3_bracket_oracle.yaml,
 # which differs in exactly one line (`memory.type`) - that is the point of the pairing:
 # every other control is identical, so the spread between the two cells is attributable to
 # the memory layer and to nothing else.
 #
-# RUNNABLE once two things are set:
-#   1. GEMINI_API_KEY in the environment. The client refuses to start without it rather
-#      than discovering it missing on the first call.
-#   2. `llm.model` and `llm.revision` pinned to the selected model, which must have
-#      >= 128k context (PLAN.md week 3, question 3). PIN_ME fails loudly by being wrong,
-#      not by being absent.
+# RUNNABLE once GEMINI_API_KEY is in the environment (`set -a; source .env; set +a`). The
+# client refuses to start without it. Model pinned 2026-09-27: gemini-3.5-flash-lite, 1M
+# context, which clears the >= 128k constraint (PLAN.md week 3, question 3).
 #
 #   uv run python -m harness run configs/week3_bracket_noop.yaml
 #
@@ -19,7 +16,7 @@
 
 run:
   seed: 1
-  max_steps: 35
+  max_steps: 25          # 19 reads + list + answer = 21, plus 4 slack: too few to re-read the corpus
   run_id_prefix: week3_bracket_noop
   retrieval_k: 5
 
@@ -28,22 +25,22 @@ run:
 suite:
   count: 30
   chain_length: 2
-  recall_distance: 12   # must exceed what the 8k window still holds, or recall is not forced
+  recall_distance: 12   # must exceed what the window still holds, or recall is not forced
   distractor_density: 0.5
   horizon: 20
   seed: 1000
-  document_tokens: 900  # at 1-sentence docs NoOp solves 30/30 at 8k; threshold ~560 offline
+  document_tokens: 220    # about 7 documents fit in 2k, so a fact 12 back has left the window
 
 planner:
   type: react
-  max_steps: 35
+  max_steps: 25
 
 memory:
   type: noop            # noop | oracle | vector | episodic | graph | hybrid
 
 context:
   type: budgeted        # budgeted | full
-  token_budget: 8000
+  token_budget: 2000     # sized to the pinned model: at 8k it lost its place (week-3 memo)
 
 tools:
   type: task_docs       # task_docs | local | mock
@@ -55,16 +52,23 @@ evaluator:
 # Frozen across every condition. Pin the revision, not just the name.
 embedding:
   model: Qwen/Qwen3-Embedding-0.6B
-  revision: PIN_ME
+  revision: 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3   # HF sha, verified 2026-09-27
 
 llm:
   provider: openai_compatible
   base_url: ${HARNESS_LLM_BASE_URL}
-  model: PIN_ME
-  revision: PIN_ME
-  api_key_env: GEMINI_API_KEY   # the NAME of the variable, never the key
+  # Verified 2026-09-27: stable, 1M context. 2.5 models are closed to new keys (404).
+  model: gemini-3.5-flash-lite
+  revision: stable-2026-07       # hosted models have no sha; the stable code plus its date
+  api_key_env: GEMINI_API_KEY    # the NAME of the variable, never the key
+  # Gemini 3 counts thinking against max_output_tokens; pinned so it cannot eat the cap.
+  reasoning_effort: minimal
   max_output_tokens: 300
   temperature: 0.0
+  max_attempts: 6                # a per-minute 429 carries a retryDelay the client honours
+  # Paid Standard tier list prices, 2026-09-24. On the free tier the meter overstates.
+  price_input_usd_per_m: 0.30
+  price_output_usd_per_m: 2.50
 
 limits:
   max_tokens_per_run: 500000

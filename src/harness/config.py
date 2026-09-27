@@ -82,6 +82,13 @@ class LLMConfig(_Strict):
     api_key_env: str | None = None
     timeout_s: float = Field(default=120.0, gt=0.0)
     max_attempts: int = Field(default=4, ge=1)
+    #: Sent as-is when set. Gemini 3 counts thinking against `max_output_tokens`, so an
+    #: unpinned thinking level can eat the whole cap and return an empty reply.
+    reasoning_effort: str | None = None
+    #: Paid-tier list prices. The spend limit is computed from these, so they are set even
+    #: on a free tier: the meter then overstates spend, which errs on the safe side.
+    price_input_usd_per_m: float = Field(default=0.0, ge=0.0)
+    price_output_usd_per_m: float = Field(default=0.0, ge=0.0)
 
 
 class LimitsConfig(_Strict):
