@@ -1,0 +1,59 @@
+# Experiment 1 cell: EpisodicMemory at an 8k context budget.
+#
+# Differs from configs/exp1_vector_8k.yaml in exactly one line (`memory.type`). That is
+# the substitutability claim, stated as a diff: two retrieval strategies with nothing else
+# changed, so the spread between them is attributable to the memory layer alone.
+
+run:
+  seed: 1
+  max_steps: 35
+  run_id_prefix: exp1_episodic_8k
+  retrieval_k: 5
+
+suite:
+  count: 30
+  chain_length: 2
+  recall_distance: 12
+  distractor_density: 0.5
+  horizon: 20
+  seed: 1000
+
+planner:
+  type: react
+  max_steps: 35
+
+memory:
+  type: episodic        # noop | oracle | vector | episodic | graph | hybrid
+
+context:
+  type: budgeted
+  token_budget: 8000
+
+tools:
+  type: local
+  sandbox_root: ./.sandbox
+  max_output_chars: 4000
+  max_read_bytes: 65536
+
+evaluator:
+  type: checker
+
+# Unused by this condition - episodic retrieval ranks by time, not by similarity - but
+# pinned anyway, so that every row in the sweep carries the same embedding provenance and
+# a later cross-condition comparison is not reading two different identities.
+embedding:
+  model: Qwen/Qwen3-Embedding-0.6B
+  revision: PIN_ME
+
+llm:
+  provider: local
+  base_url: ${HARNESS_LLM_BASE_URL}
+  model: PIN_ME
+  revision: PIN_ME
+  api_key_env: null
+  max_output_tokens: 300
+  temperature: 0.0
+
+limits:
+  max_tokens_per_run: 500000
+  max_spend_usd: 25.0

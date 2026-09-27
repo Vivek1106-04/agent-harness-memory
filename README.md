@@ -96,13 +96,28 @@ Week 3 instruments in place: task generator v1 (`multihop_qa`, a pure function o
 emitting the task, its checker and its per-step gold labels), the forces-recall assertion,
 `NoOpMemory` and `OracleMemory`, `BudgetedContextManager`, the task-document tool runtime,
 a minimal `CheckerEvaluator`, and the runtime loop that runs one task through all five
-layers. 220 tests, 100% coverage on `src/harness/`.
+layers.
 
-Not yet implemented: any memory provider under test, the ReAct planner, the local tool
-runtime, and the LLM adapters.
+Week 4 in place: `ReActPlanner` (pulled forward, since the week-3 gate needed it),
+`HttpLLMClient` for hosted and local vLLM endpoints alike, `LocalToolRuntime` against a
+real sandboxed filesystem, the first two memory providers under test (`VectorMemory` with
+exact cosine, `EpisodicMemory` with time-windowed retrieval), task suites as a pure
+function of the config, and a resumable CLI. 383 tests, 100% coverage on `src/harness/`.
 
-The week-3 gate itself is **not yet answered** - it needs a looping planner and a model
-endpoint. Questions, method and decision rules are recorded in
-[docs/sweep-memos/week3.md](docs/sweep-memos/week3.md) before any data is seen.
+Running a cell:
 
-`PLAN.md` is the schedule; the next hard gate is **interfaces frozen, 23 September 2026**.
+```bash
+export GEMINI_API_KEY=...                       # never in a config file
+uv run python -m harness run configs/week3_bracket_noop.yaml
+uv run python -m harness run configs/week3_bracket_oracle.yaml
+```
+
+The week-3 gate is **not yet answered**: it now needs only a key and a model pinned in
+`llm.model` / `llm.revision` (>= 128k context). Questions, method and decision rules were
+recorded in [docs/sweep-memos/week3.md](docs/sweep-memos/week3.md) before any data was
+seen, and the answers go in the same file the day the bracket runs.
+
+Not yet implemented: `GraphMemory`, `HybridMemory`, and the `mock_fs` / `repo_edit` task
+families.
+
+`PLAN.md` is the schedule; the next hard gate is **code freeze for the panel**.

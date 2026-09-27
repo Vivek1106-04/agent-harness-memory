@@ -8,9 +8,9 @@ from harness.components.context_budgeted import (
     BudgetTooSmallError,
 )
 from harness.interfaces import ContextManager
-from harness.prompts import SYSTEM_INSTRUCTIONS
+from harness.prompts import SYSTEM_INSTRUCTIONS, render_observation
 from harness.registry import resolve
-from harness.segments import ROLE_MEMORY, ROLE_OBSERVATION
+from harness.segments import ROLE_MEMORY, ROLE_OBSERVATION, memory_id, observation_id
 from harness.tokens import approx_token_count
 from harness.types import MemoryItem, Observation
 from tests.contracts.context import ContextManagerContract
@@ -154,3 +154,48 @@ def test_token_count_matches_the_counter_it_was_given() -> None:
 
     # Assert
     assert window.token_count == sum(approx_token_count(text) for _, text in window.segments)
+
+
+def test_every_evicted_segment_is_named_in_dropped() -> None:
+    """The week-4 hardening bar: no segment leaves the window without an entry.
+
+    Without a complete record, an Experiment 2 result cannot tell "memory failed to
+    recover the fact" from "the fact was never evicted in the first place" - and a
+    `dropped` list that is merely mostly complete has exactly that failure mode.
+    """
+    # Arrange
+    observations = _observations(30)
+    items = _items(20)
+    manager = BudgetedContextManager(_floor() + 40)
+
+    # Act
+    window = manager.assemble(GOAL, observations, items)
+
+    # Assert
+    offered = {memory_id(item.provenance) for item in items} | {
+        observation_id(obs.step) for obs in observations
+    }
+    kept = {text for _, text in window.segments}
+    survived = {memory_id(item.provenance) for item in items if item.content in kept} | {
+        observation_id(obs.step) for obs in observations if render_observation(obs) in kept
+    }
+    named = {entry.split("|", 1)[0] for entry in window.dropped}
+    assert named == offered - survived
+
+
+def test_a_dropped_entry_names_an_identifier_and_a_reason_only() -> None:
+    """Identifiers and reasons, never evicted payloads. SECURITY.md section 4."""
+    # Arrange
+    secret = "the access code for delta is 4271"
+    manager = BudgetedContextManager(_floor() + 1)
+
+    # Act
+    window = manager.assemble(
+        GOAL,
+        [],
+        [MemoryItem(content=secret, score=1.0, provenance="run:9", kind="semantic")],
+    )
+
+    # Assert
+    assert window.dropped == [f"mem:run:9|{REASON_BUDGET}"]
+    assert secret not in " ".join(window.dropped)

@@ -5,32 +5,47 @@
 # every other control is identical, so the spread between the two cells is attributable to
 # the memory layer and to nothing else.
 #
-# NOT RUNNABLE YET. Two things are missing and both are known:
-#   1. `planner.type: react` lands in week 4. `single_step` cannot read documents, so it
-#      cannot produce a bracket. The registry refuses an unknown name loudly, by design.
-#   2. The gate needs a model endpoint with >= 128k context (PLAN.md week 3, question 3).
-# The cell is written down now, before any data is seen, so the comparison cannot be
-# chosen after the fact.
+# RUNNABLE once two things are set:
+#   1. GEMINI_API_KEY in the environment. The client refuses to start without it rather
+#      than discovering it missing on the first call.
+#   2. `llm.model` and `llm.revision` pinned to the selected model, which must have
+#      >= 128k context (PLAN.md week 3, question 3). PIN_ME fails loudly by being wrong,
+#      not by being absent.
+#
+#   uv run python -m harness run configs/week3_bracket_oracle.yaml
+#
+# A low number here is not a memory result. It means the model cannot use a fact even when
+# handed it perfectly, which is a task-design problem with a different fix - and it is
+# invisible without this cell.
 
 run:
   seed: 1
   max_steps: 35
   run_id_prefix: week3_bracket_oracle
+  retrieval_k: 5
+
+# Identical to the floor cell. Any drift here and the two cells stop being a bracket.
+suite:
+  count: 30
+  chain_length: 2
+  recall_distance: 12
+  distractor_density: 0.5
+  horizon: 20
+  seed: 1000
 
 planner:
   type: react
   max_steps: 35
 
 memory:
-  type: oracle
+  type: oracle          # noop | oracle | vector | episodic | graph | hybrid
 
 context:
-  type: budgeted
+  type: budgeted        # budgeted | full
   token_budget: 8000
 
 tools:
-  type: task_docs
-  sandbox_root: ./.sandbox
+  type: task_docs       # task_docs | local | mock
   max_output_chars: 4000
 
 evaluator:
@@ -42,10 +57,11 @@ embedding:
   revision: PIN_ME
 
 llm:
-  provider: local
+  provider: openai_compatible
   base_url: ${HARNESS_LLM_BASE_URL}
   model: PIN_ME
   revision: PIN_ME
+  api_key_env: GEMINI_API_KEY   # the NAME of the variable, never the key
   max_output_tokens: 300
   temperature: 0.0
 

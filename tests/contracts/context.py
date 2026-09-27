@@ -16,14 +16,21 @@ from collections.abc import Callable
 import pytest
 
 from harness.interfaces import ContextManager
+from harness.prompts import SYSTEM_INSTRUCTIONS
 from harness.segments import PROTECTED_ROLES
+from harness.tokens import approx_token_count
 from harness.types import MemoryItem, Observation
 
-#: Large enough for system instructions plus the goal, small enough to force eviction
-#: against the history built below.
-SMALL_BUDGET = 128
-
 GOAL = "GOALMARKER recover the safe combination and write it to answer.txt"
+
+#: Headroom above the unevictable floor: enough to keep a few segments, far short of the
+#: history built below, so eviction is forced.
+BUDGET_HEADROOM = 64
+
+#: Derived from the frozen system text rather than hardcoded. A literal would turn this
+#: whole suite into a test of `BudgetTooSmallError` the next time that text grows, which is
+#: a silent way to stop testing the budget at all.
+SMALL_BUDGET = approx_token_count(SYSTEM_INSTRUCTIONS) + approx_token_count(GOAL) + BUDGET_HEADROOM
 
 
 def _history(n: int = 40) -> list[Observation]:

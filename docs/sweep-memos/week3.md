@@ -18,6 +18,10 @@ below, the same day the bracket runs, and not carried in anyone's head.
 | `BudgetedContextManager` | Done - budget binds, evictions named in `dropped` |
 | Runtime loop (`harness.loop`) | Done - one task end to end through all five layers |
 | Bracket cells | `configs/week3_bracket_noop.yaml`, `configs/week3_bracket_oracle.yaml` |
+| `ReActPlanner` (`harness.components.planner_react`) | Done - pulled forward from week 4 |
+| Model client (`harness.llm_http`) | Done - OpenAI-compatible, covers hosted and local vLLM |
+| Task suite (`harness.tasks.suite`) | Done - a task set is a pure function of the config |
+| Runner CLI (`harness.cli`) | Done - `python -m harness run <config>`, resumable |
 
 The bracket mechanism is verified offline in `tests/test_loop.py`: the same task, budget and
 planner fail under `NoOpMemory` and pass under `OracleMemory`. That proves the instrument
@@ -25,17 +29,38 @@ moves. It says nothing about whether a **model** can use it, which is what the g
 
 ---
 
-## What blocks the gate
+## What blocked the gate, and what is left
 
-1. **No looping planner.** `SingleStepPlanner` answers in one call and cannot read a
-   document. The bracket needs `ReActPlanner`, scheduled for week 4 (Ansh). The week-3 gate
-   therefore depends on a week-4 deliverable - a real scheduling defect in PLAN.md, flagged
-   rather than worked around.
-2. **No model endpoint.** No key is configured and no local vLLM is running. Question 3 is a
-   model selection gate, so it cannot be answered by a scripted client: the answer *is* the
-   model's behaviour.
+Both blockers recorded here on 14 September are now cleared in code:
 
-Neither blocker touches the four questions below. They stand as written.
+1. ~~**No looping planner.**~~ `ReActPlanner` was pulled forward from week 4 rather than
+   deferring the gate. The scheduling defect it exposed - a week-3 gate depending on a
+   week-4 deliverable - stands as a finding about PLAN.md, not something to quietly fix.
+2. ~~**No model endpoint.**~~ `HttpLLMClient` speaks the OpenAI chat-completions shape, so
+   a hosted endpoint and a local vLLM server are the same code path. The key is read from
+   the environment variable named by `llm.api_key_env` and the client refuses to start
+   without it.
+
+**What is left is not code.** Two settings, and they are the gate:
+
+- `GEMINI_API_KEY` (or whichever provider is selected) exported in the shell.
+- `llm.model` and `llm.revision` pinned in both bracket configs, to a model with
+  **>= 128k context**. They currently read `PIN_ME`, which is wrong rather than absent, so
+  a run against an unpinned config is recorded as a run against a model named `PIN_ME` and
+  is obvious in the results rather than silent.
+
+Then, in order:
+
+```
+uv run python -m harness run configs/week3_bracket_noop.yaml
+uv run python -m harness run configs/week3_bracket_oracle.yaml
+```
+
+The floor cell doubles as the forces-recall screen: a task the NoOp cell **solves** did not
+need memory and is struck from the set before the ceiling cell is read.
+
+Neither cleared blocker touches the four questions below. They stand exactly as written on
+14 September, before any data was seen.
 
 ---
 
