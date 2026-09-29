@@ -88,6 +88,7 @@ def build_llm(
             already_spent_usd=already_spent_usd,
         ),
         auth=auth,
+        seed=config.run.seed,
     )
 
 

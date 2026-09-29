@@ -108,6 +108,7 @@ class HttpLLMClient(LLMClient):
         reasoning_effort: str | None = None,
         pricing: Pricing | None = None,
         auth: httpx.Auth | None = None,
+        seed: int | None = None,
     ) -> None:
         if max_attempts < 1:
             raise ValueError(f"max_attempts must be at least 1, got {max_attempts}")
@@ -125,6 +126,7 @@ class HttpLLMClient(LLMClient):
         self._client = client or httpx.Client(timeout=timeout_s)
         self._headers = headers
         self._auth = auth
+        self._seed = seed
 
     @classmethod
     def from_env(
@@ -140,6 +142,7 @@ class HttpLLMClient(LLMClient):
         reasoning_effort: str | None = None,
         pricing: Pricing | None = None,
         auth: httpx.Auth | None = None,
+        seed: int | None = None,
     ) -> HttpLLMClient:
         """Build a client, reading the key from the environment variable `api_key_env`.
 
@@ -168,6 +171,7 @@ class HttpLLMClient(LLMClient):
             reasoning_effort=reasoning_effort,
             pricing=pricing,
             auth=auth,
+            seed=seed,
         )
 
     @property
@@ -190,6 +194,8 @@ class HttpLLMClient(LLMClient):
         }
         if self._reasoning_effort is not None:
             payload["reasoning_effort"] = self._reasoning_effort
+        if self._seed is not None:
+            payload["seed"] = self._seed
         text = ""
         for _ in range(1 + EMPTY_COMPLETION_RETRIES):
             response = self._post_with_retry(payload)

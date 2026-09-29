@@ -5,8 +5,12 @@
 # than re-bought. Run the whole pilot (6 conditions x 2 seeds) with:
 #
 #   uv run python -m harness sweep configs/week3_bracket_noop.yaml \
-#       configs/week3_bracket_oracle.yaml configs/pilot_*_2k.yaml --seeds 1 2
-#   uv run python -m harness report --out docs/sweep-memos/pilot-table.md
+#       configs/week3_bracket_oracle.yaml configs/pilot_*_2k.yaml --seeds 1 2 \
+#       --out results/pilot-t1.db --traces results/pilot-t1-traces
+#   uv run python -m harness report --db results/pilot-t1.db --out docs/sweep-memos/pilot-table.md
+#
+# Its own database: run ids do not carry the config hash, so a temperature-1.0 sweep into
+# runs.db would find the temperature-0 rows and skip every cell as already done.
 #
 # RUNNABLE on Vertex AI (project btp-vivek, education credits) once `gcloud auth
 # application-default login` is done and HARNESS_LLM_BASE_URL is the Vertex endpoint
@@ -62,7 +66,7 @@ llm:
   # Gemini 3 counts thinking against max_output_tokens; pinned so it cannot eat the cap.
   reasoning_effort: minimal
   max_output_tokens: 300
-  temperature: 0.0
+  temperature: 1.0               # sampled, so run.seed (sent as `seed`) makes replicates distinct
   max_attempts: 6                # a per-minute 429 carries a retryDelay the client honours
   # Paid Standard tier list prices, 2026-09-24. On the free tier the meter overstates.
   price_input_usd_per_m: 0.30
