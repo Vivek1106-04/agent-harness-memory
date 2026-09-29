@@ -421,6 +421,33 @@ def test_reasoning_effort_is_sent_only_when_configured() -> None:
     assert bodies[1]["reasoning_effort"] == "minimal"
 
 
+def test_seed_is_sent_only_when_configured() -> None:
+    """At temperature > 0 the seed is what makes a replicate reproducible and distinct."""
+    # Arrange
+    bodies: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json=_completion("x"))
+
+    plain = _client(handler)
+    seeded = HttpLLMClient.from_env(
+        base_url=BASE_URL,
+        model=MODEL,
+        env={},
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        seed=2,
+    )
+
+    # Act
+    plain.complete(_window(), max_output_tokens=10)
+    seeded.complete(_window(), max_output_tokens=10)
+
+    # Assert
+    assert "seed" not in bodies[0]
+    assert bodies[1]["seed"] == 2
+
+
 def test_spend_is_priced_from_the_reported_usage() -> None:
     # Arrange
     client = _priced(lambda request: httpx.Response(200, json=_with_usage(1_000_000, 100_000)))

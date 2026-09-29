@@ -87,9 +87,10 @@ def run_sweep(
 def _shared_client(
     config: HarnessConfig, paths: RunPaths, clients: dict[str, LLMClient]
 ) -> LLMClient:
-    """One client per distinct `llm` block, so the spend meter spans the whole sweep, seeded
-    with what the results store already recorded so a resumed sweep keeps counting."""
-    key = config.llm.model_dump_json()
+    """One client per distinct `llm` block and run seed. The seed is sent with every request,
+    so each replicate needs its own client; each new client starts its spend meter at what
+    the results store already recorded, so the limit still spans the whole sweep."""
+    key = f"{config.llm.model_dump_json()}|{config.run.seed}"
     if key not in clients:
         with ResultsStore(paths.results) as store:
             spent = store.total_cost_usd()

@@ -515,6 +515,23 @@ what it needed, went back, and ran out of steps. About $0.015 a run.
 documents scaled with the budget or a stronger model on a paid tier.
 **Reportable?** yes - week-3 question 3 (model capability) answered with evidence.
 
+### 2026-09-29 · llm · replicates are sampled: temperature 1.0, run seed sent to the endpoint
+**Owner:** Vivek, agreed by the team
+**What did not fit:** `run.seed` reached only the run id. At `temperature: 0.0`, with no
+seed sent, seed 2 would differ from seed 1 only by provider nondeterminism, so week-3
+question 4 (intra-task correlation) would have measured Vertex's noise, not replicate
+variance. The 2026-09-27 runner entry left this open.
+**What we changed:** the client sends `run.seed` as `seed`; the sweep builds one client per
+seed (each starts its spend meter at the store total, so the limit still spans the sweep);
+the bracket and pilot configs sample at `temperature: 1.0`, Gemini's default. Checked on
+Vertex, 29 September: at 1.0 the same seed gave identical output three times out of three
+and a different seed gave different output.
+**What it cost:** the bracket and pilot are re-run at 1.0 into `results/pilot-t1.db`. The
+temperature-0 rows in `runs.db` stay as a deterministic baseline and are not mixed in - run
+ids do not carry the config hash, so a shared database would skip every sampled cell as
+already done. The week-3 answers must be re-read on the sampled bracket.
+**Reportable?** yes - methodology: replicates are real samples, not repeated greedy decodes.
+
 ---
 
 ## Open questions to resolve by the week-2 freeze

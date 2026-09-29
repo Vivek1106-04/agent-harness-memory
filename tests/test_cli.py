@@ -331,25 +331,54 @@ def test_a_spend_abort_stops_the_whole_sweep_with_its_own_exit_code(
     assert "sweep stopped: spend limit reached" in capsys.readouterr().err
 
 
-def test_one_metered_client_serves_every_cell_of_a_sweep(
+def test_one_metered_client_per_seed_serves_every_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The seed is sent with every request, so a replicate needs its own client."""
+    # Arrange
+    built: list[int] = []
+
+    def fake_build(config: HarnessConfig, already_spent_usd: float = 0.0) -> FakeLLMClient:
+        built.append(config.run.seed)
+        return FakeLLMClient(["{}"])
+
+    monkeypatch.setattr("harness.cli.build_llm", fake_build)
+    first = load_config(write_config(tmp_path, suite=SUITE))
+    second = load_config(write_config(tmp_path, suite=SUITE, run={"run_id_prefix": "b"}))
+
+    # Act
+    run_sweep([first, second], _paths(tmp_path), seeds=[1, 2])
+
+    # Assert
+    assert built == [1, 2]
+
+
+def test_a_later_seed_starts_its_meter_at_what_the_store_recorded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Separate clients would each start the spend meter at zero."""
+
     # Arrange
+    class Metered(FakeLLMClient):
+        @property
+        def spent_usd(self) -> float:
+            return 0.01 * len(self.calls)
+
     built: list[float] = []
 
-    def fake_build(config: object, already_spent_usd: float = 0.0) -> FakeLLMClient:
+    def fake_build(config: HarnessConfig, already_spent_usd: float = 0.0) -> FakeLLMClient:
         built.append(already_spent_usd)
-        return FakeLLMClient(["{}"])
+        return Metered(_reading_script())
 
     monkeypatch.setattr("harness.cli.build_llm", fake_build)
     config = load_config(write_config(tmp_path, suite=SUITE))
 
     # Act
-    run_sweep([config], _paths(tmp_path), seeds=[1, 2, 3])
+    run_sweep([config], _paths(tmp_path), seeds=[1, 2])
 
     # Assert
-    assert built == [0.0]
+    assert built[0] == 0.0
+    assert built[1] > 0.0
 
 
 def test_a_row_records_what_its_run_spent(tmp_path: Path) -> None:

@@ -11,7 +11,8 @@
 # The client refuses to start without a working login. Model pinned 2026-09-27:
 # gemini-3.5-flash-lite, 1M context, which clears the >= 128k constraint (PLAN.md week 3, question 3).
 #
-#   uv run python -m harness run configs/week3_bracket_oracle.yaml
+#   uv run python -m harness run configs/week3_bracket_oracle.yaml \
+#       --out results/pilot-t1.db --traces results/pilot-t1-traces
 #
 # A low number here is not a memory result. It means the model cannot use a fact even when
 # handed it perfectly, which is a task-design problem with a different fix - and it is
@@ -66,7 +67,7 @@ llm:
   # Gemini 3 counts thinking against max_output_tokens; pinned so it cannot eat the cap.
   reasoning_effort: minimal
   max_output_tokens: 300
-  temperature: 0.0
+  temperature: 1.0               # sampled, so run.seed (sent as `seed`) makes replicates distinct
   max_attempts: 6                # a per-minute 429 carries a retryDelay the client honours
   # Paid Standard tier list prices, 2026-09-24. On the free tier the meter overstates.
   price_input_usd_per_m: 0.30

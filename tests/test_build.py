@@ -227,6 +227,17 @@ def test_build_llm_with_google_login_authenticates_every_request(
     assert client._auth is sentinel
 
 
+def test_build_llm_sends_the_run_seed(tmp_path: Path) -> None:
+    # Arrange
+    subject = config(tmp_path, run={"seed": 7})
+
+    # Act
+    client = build_llm(subject, env={})
+
+    # Assert
+    assert client._seed == 7
+
+
 def test_build_llm_needs_no_key_for_a_local_endpoint(tmp_path: Path) -> None:
     client = build_llm(config(tmp_path), env={})
 
