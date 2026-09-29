@@ -172,6 +172,44 @@ def test_from_env_reads_the_key_by_name() -> None:
     assert seen[0].headers["authorization"] == "Bearer sk-from-env"
 
 
+def test_an_auth_flow_authenticates_every_request() -> None:
+    """A Google login re-issues its token hourly, so a fixed header would expire mid-sweep."""
+
+    # Arrange
+    class _Counting(httpx.Auth):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def auth_flow(self, request: httpx.Request):  # type: ignore[no-untyped-def]
+            self.calls += 1
+            request.headers["Authorization"] = f"Bearer tok-{self.calls}"
+            yield request
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=_completion("ok"))
+
+    auth = _Counting()
+    client = HttpLLMClient.from_env(
+        base_url=BASE_URL,
+        model=MODEL,
+        auth=auth,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    # Act
+    client.complete(_window(), max_output_tokens=10)
+    client.complete(_window(), max_output_tokens=10)
+
+    # Assert
+    assert [request.headers["authorization"] for request in seen] == [
+        "Bearer tok-1",
+        "Bearer tok-2",
+    ]
+
+
 def test_from_env_refuses_to_start_when_the_named_key_is_unset() -> None:
     """A sweep that discovers this on its first call has already booked a slot."""
     with pytest.raises(LLMTransportError, match="TEST_HARNESS_KEY"):

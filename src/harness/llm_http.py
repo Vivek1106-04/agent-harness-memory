@@ -107,6 +107,7 @@ class HttpLLMClient(LLMClient):
         client: httpx.Client | None = None,
         reasoning_effort: str | None = None,
         pricing: Pricing | None = None,
+        auth: httpx.Auth | None = None,
     ) -> None:
         if max_attempts < 1:
             raise ValueError(f"max_attempts must be at least 1, got {max_attempts}")
@@ -123,6 +124,7 @@ class HttpLLMClient(LLMClient):
             headers["Authorization"] = f"Bearer {api_key}"
         self._client = client or httpx.Client(timeout=timeout_s)
         self._headers = headers
+        self._auth = auth
 
     @classmethod
     def from_env(
@@ -137,12 +139,14 @@ class HttpLLMClient(LLMClient):
         client: httpx.Client | None = None,
         reasoning_effort: str | None = None,
         pricing: Pricing | None = None,
+        auth: httpx.Auth | None = None,
     ) -> HttpLLMClient:
         """Build a client, reading the key from the environment variable `api_key_env`.
 
         A local server needs no key, so `api_key_env` may be None. When it is named and
         unset the constructor refuses: a sweep that discovers this on its first call has
-        already paid for a scheduler slot.
+        already paid for a scheduler slot. `auth` is for a credential that changes during a
+        sweep, such as a Google login, and is applied to every request.
         """
         source = os.environ if env is None else env
         api_key = None
@@ -163,6 +167,7 @@ class HttpLLMClient(LLMClient):
             client=client,
             reasoning_effort=reasoning_effort,
             pricing=pricing,
+            auth=auth,
         )
 
     @property
@@ -231,7 +236,10 @@ class HttpLLMClient(LLMClient):
 
     def _post(self, payload: dict[str, object]) -> dict[str, object]:
         response = self._client.post(
-            f"{self._base_url}{COMPLETIONS_PATH}", json=payload, headers=self._headers
+            f"{self._base_url}{COMPLETIONS_PATH}",
+            json=payload,
+            headers=self._headers,
+            auth=self._auth or httpx.USE_CLIENT_DEFAULT,
         )
         if response.status_code == HTTP_TOO_MANY_REQUESTS and DAILY_QUOTA_MARKER in response.text:
             raise DailyQuotaError(

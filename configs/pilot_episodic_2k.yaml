@@ -8,7 +8,9 @@
 #       configs/week3_bracket_oracle.yaml configs/pilot_*_2k.yaml --seeds 1 2
 #   uv run python -m harness report --out docs/sweep-memos/pilot-table.md
 #
-# RUNNABLE once GEMINI_API_KEY is in the environment (`set -a; source .env; set +a`).
+# RUNNABLE on Vertex AI (project btp-vivek, education credits) once `gcloud auth
+# application-default login` is done and HARNESS_LLM_BASE_URL is the Vertex endpoint
+# (see smoke_vertex.yaml).
 
 run:
   seed: 1
@@ -54,9 +56,9 @@ llm:
   provider: openai_compatible
   base_url: ${HARNESS_LLM_BASE_URL}
   # Verified 2026-09-27: stable, 1M context. 2.5 models are closed to new keys (404).
-  model: gemini-3.5-flash-lite
+  model: google/gemini-3.5-flash-lite   # Vertex names publisher models google/<id>
   revision: stable-2026-07       # hosted models have no sha; the stable code plus its date
-  api_key_env: GEMINI_API_KEY    # the NAME of the variable, never the key
+  auth: google_adc               # no key: the Google login, refreshed before it expires
   # Gemini 3 counts thinking against max_output_tokens; pinned so it cannot eat the cap.
   reasoning_effort: minimal
   max_output_tokens: 300

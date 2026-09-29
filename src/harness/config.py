@@ -20,14 +20,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from harness.redaction import contains_secret
 
 ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 #: Excluded from the config hash. Machine-local, not part of experiment identity.
-HASH_EXCLUDED: tuple[tuple[str, str], ...] = (("llm", "base_url"),)
+HASH_EXCLUDED: tuple[tuple[str, str], ...] = (("llm", "base_url"), ("llm", "auth"))
 
 
 class ConfigError(Exception):
@@ -71,6 +71,9 @@ class LLMConfig(_Strict):
     A hosted endpoint names one and the client refuses to start if it is unset; a local
     vLLM server leaves it null and sends no Authorization header. The name is not a secret,
     so it is hashed into the config identity along with everything else.
+
+    `auth: google_adc` sends the machine's Google login instead of a key, for Vertex AI. How
+    a machine authenticates is not part of the experiment, so it is not hashed.
     """
 
     provider: Literal["local", "openai_compatible"]
@@ -80,6 +83,7 @@ class LLMConfig(_Strict):
     max_output_tokens: int = Field(gt=0)
     temperature: float = Field(ge=0.0)
     api_key_env: str | None = None
+    auth: Literal["api_key", "google_adc"] = "api_key"
     timeout_s: float = Field(default=120.0, gt=0.0)
     max_attempts: int = Field(default=4, ge=1)
     #: Sent as-is when set. Gemini 3 counts thinking against `max_output_tokens`, so an
@@ -89,6 +93,12 @@ class LLMConfig(_Strict):
     #: on a free tier: the meter then overstates spend, which errs on the safe side.
     price_input_usd_per_m: float = Field(default=0.0, ge=0.0)
     price_output_usd_per_m: float = Field(default=0.0, ge=0.0)
+
+    @model_validator(mode="after")
+    def _one_credential(self) -> LLMConfig:
+        if self.auth == "google_adc" and self.api_key_env is not None:
+            raise ValueError("auth: google_adc sends a Google login; set api_key_env: null")
+        return self
 
 
 class LimitsConfig(_Strict):

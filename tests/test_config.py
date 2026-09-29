@@ -192,6 +192,38 @@ def test_hash_ignores_the_endpoint_but_not_the_model(tmp_path: Path) -> None:
     assert other_model != baseline
 
 
+def test_hash_ignores_how_the_endpoint_is_authenticated(tmp_path: Path) -> None:
+    """A key or a Google login reach the same model; the credential is the machine's."""
+    # Arrange
+    path = _write(tmp_path, VALID)
+    baseline = config_hash(load_config(path, env=ENV))
+
+    # Act
+    google_login = config_hash(
+        load_config(
+            _write(
+                tmp_path, VALID.replace("temperature: 0.0", "temperature: 0.0\n  auth: google_adc")
+            ),
+            env=ENV,
+        )
+    )
+
+    # Assert
+    assert google_login == baseline
+
+
+def test_google_login_with_a_named_key_is_refused(tmp_path: Path) -> None:
+    """Two credentials for one endpoint means one of them is silently ignored."""
+    # Arrange
+    text = VALID.replace(
+        "temperature: 0.0", "temperature: 0.0\n  auth: google_adc\n  api_key_env: SOME_KEY"
+    )
+
+    # Act / Assert
+    with pytest.raises(ConfigError, match="google_adc"):
+        load_config(_write(tmp_path, text), env=ENV)
+
+
 def test_hash_changes_when_a_component_changes(tmp_path: Path) -> None:
     # Arrange
     path = _write(tmp_path, VALID)

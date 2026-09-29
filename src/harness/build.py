@@ -26,6 +26,7 @@ from typing import Any
 
 from harness.config import ComponentConfig, HarnessConfig
 from harness.embedding import SentenceTransformerEncoder
+from harness.gcp_auth import GoogleAdcAuth
 from harness.interfaces import (
     ContextManager,
     Evaluator,
@@ -70,6 +71,7 @@ def build_llm(
     `already_spent_usd` is what the results store has recorded, so the spend limit counts
     across resumed sweeps rather than restarting at zero each time.
     """
+    auth = GoogleAdcAuth.from_environment() if config.llm.auth == "google_adc" else None
     return HttpLLMClient.from_env(
         base_url=config.llm.base_url,
         model=config.llm.model,
@@ -85,6 +87,7 @@ def build_llm(
             max_spend_usd=config.limits.max_spend_usd,
             already_spent_usd=already_spent_usd,
         ),
+        auth=auth,
     )
 
 

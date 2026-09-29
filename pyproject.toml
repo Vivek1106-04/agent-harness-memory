@@ -11,6 +11,7 @@ dependencies = [
     "httpx>=0.27",         # LLM client; no framework dependency
     "sentence-transformers>=3.0",
     "tenacity>=8.3",       # bounded retry on transient API errors
+    "google-auth[requests]>=2.30",
 ]
 
 [project.optional-dependencies]
