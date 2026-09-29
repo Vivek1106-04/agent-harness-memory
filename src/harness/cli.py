@@ -195,6 +195,7 @@ def _row(
         embedding_revision=provenance.embedding_revision,
         retrieval_precision=outcome.retrieval_precision,
         retrieval_recall=outcome.retrieval_recall,
+        retrieval_recall_final=outcome.retrieval_recall_final,
         cost_usd=cost_usd,
     )
 

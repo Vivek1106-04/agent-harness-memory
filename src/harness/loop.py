@@ -61,6 +61,7 @@ class LoopOutcome:
     #: None when never defined: the agent read no required fact, or memory returned nothing.
     retrieval_precision: float | None = None
     retrieval_recall: float | None = None
+    retrieval_recall_final: float | None = None
 
 
 class AgentLoop:
@@ -161,6 +162,7 @@ class AgentLoop:
             stop_reason=stop_reason,
             retrieval_precision=tally.precision,
             retrieval_recall=tally.recall,
+            retrieval_recall_final=tally.final_recall,
         )
 
     def _over_token_limit(self, spent: int) -> bool:

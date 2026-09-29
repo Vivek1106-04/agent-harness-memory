@@ -59,6 +59,7 @@ class ConditionSummary:
     tokens_write: float
     retrieval_precision: float | None
     retrieval_recall: float | None
+    retrieval_recall_final: float | None
 
 
 @dataclass(frozen=True)
@@ -176,6 +177,7 @@ def _summary(
         tokens_write=float(np.mean([row.tokens_write for row in mine])),
         retrieval_precision=_mean_defined([row.retrieval_precision for row in mine]),
         retrieval_recall=_mean_defined([row.retrieval_recall for row in mine]),
+        retrieval_recall_final=_mean_defined([row.retrieval_recall_final for row in mine]),
     )
 
 
@@ -203,8 +205,8 @@ def render(report: PilotReport) -> str:
         f"{len(report.incomplete)} incomplete. Preliminary - no significance claimed.",
         "",
         "| Condition | Runs | Success [95% CI] | Headroom [95% CI] | Read tok | Write tok "
-        "| Ret. P | Ret. R |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Ret. P | Ret. R | Ret. R final |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     lines.extend(_row(summary) for summary in report.conditions)
     if report.primary is not None:
@@ -218,7 +220,7 @@ def _row(s: ConditionSummary) -> str:
     return (
         f"| {s.condition} | {s.runs} | {_fmt(s.success)} | {headroom} | "
         f"{s.tokens_read:.0f} | {s.tokens_write:.0f} | {_opt(s.retrieval_precision)} | "
-        f"{_opt(s.retrieval_recall)} |"
+        f"{_opt(s.retrieval_recall)} | {_opt(s.retrieval_recall_final)} |"
     )
 
 

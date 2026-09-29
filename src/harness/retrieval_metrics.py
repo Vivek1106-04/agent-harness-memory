@@ -44,6 +44,13 @@ class RetrievalTally:
     def recall(self) -> float | None:
         return _mean(self._recalls)
 
+    @property
+    def final_recall(self) -> float | None:
+        """Recall on the last scored step: the retrieval the answer was given on, when the
+        agent answered. The average charges a memory that finds a fact only once the linking
+        document is read for every step before; this does not."""
+        return self._recalls[-1] if self._recalls else None
+
 
 def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None

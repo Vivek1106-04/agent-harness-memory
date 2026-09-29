@@ -313,6 +313,7 @@ def test_graph_memory_recovers_the_evicted_fact(tmp_path: Path) -> None:
 
     # Assert
     assert outcome.verdict.success is True
+    assert outcome.retrieval_recall_final == 1.0
 
 
 def test_retrieval_scores_bracket_the_same_way_success_does(tmp_path: Path) -> None:
@@ -325,6 +326,7 @@ def test_retrieval_scores_bracket_the_same_way_success_does(tmp_path: Path) -> N
     assert (ceiling.retrieval_precision, ceiling.retrieval_recall) == (1.0, 1.0)
     assert floor.retrieval_precision is None
     assert floor.retrieval_recall == 0.0
+    assert (ceiling.retrieval_recall_final, floor.retrieval_recall_final) == (1.0, 0.0)
 
 
 def test_padded_documents_make_an_8k_budget_force_recall(tmp_path: Path) -> None:

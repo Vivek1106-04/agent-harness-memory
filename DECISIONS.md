@@ -532,6 +532,26 @@ ids do not carry the config hash, so a shared database would skip every sampled 
 already done. The week-3 answers must be re-read on the sampled bracket.
 **Reportable?** yes - methodology: replicates are real samples, not repeated greedy decodes.
 
+### 2026-09-30 · evaluator · final-step retrieval recall alongside the step average
+**Owner:** Vivek
+**What did not fit:** the temperature-0 pilot scored graph 28/30 on success and 0.07 on
+retrieval recall. Replay of task 001 showed why: recall is averaged over every step after
+the first required fact is read, and a graph cannot link that fact to the goal's entity
+until the document naming both is read - thirteen steps later. Every step in between
+scores 0; the step the answer was given on scores 1.0. The average measures "does memory
+surface a fact before anything marks it relevant", which is not what a multi-hop answer
+needs, and it penalises exactly the retrieval-by-link behaviour graph memory exists for.
+**What we changed:** `RetrievalTally.final_recall` - recall on the last scored step, which
+is the answer step whenever the agent answered - stored as `retrieval_recall_final` and
+reported beside the step average, not instead of it. Existing databases gain the column on
+open. Rows recorded before it were backfilled by `scripts/rescore_final_recall.py`, which
+replays each trace's recorded actions through the real loop with no model call and writes
+a row only when the replay reproduces its stored recall, steps and success exactly.
+**What it cost:** nothing re-run. Found on the way: a cell that fails on a transport error
+and is retried appends its second attempt to the same trace file, so six traces hold two
+attempts. The backfill reads the last attempt; the runner still appends, noted not fixed.
+**Reportable?** yes - both recall figures, with the reason they differ.
+
 ---
 
 ## Open questions to resolve by the week-2 freeze

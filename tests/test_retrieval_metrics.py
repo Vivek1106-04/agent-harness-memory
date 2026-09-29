@@ -68,3 +68,33 @@ def test_relevance_is_by_containment_so_wrapped_facts_count() -> None:
 
     # Assert
     assert tally.recall == pytest.approx(1.0)
+
+
+def test_final_recall_is_the_last_scored_step_not_the_average() -> None:
+    """A graph finds a fact only once the document linking it has been read. The average
+    charges it for every step before that; the final step is what the answer was given on."""
+    # Arrange
+    tally = RetrievalTally([FACT_A])
+
+    # Act
+    tally.observe(history=[FACT_A], retrieved=[NOISE])
+    tally.observe(history=[FACT_A], retrieved=[FACT_A])
+
+    # Assert
+    assert tally.recall == pytest.approx(0.5)
+    assert tally.final_recall == pytest.approx(1.0)
+
+
+def test_final_recall_ignores_steps_before_any_required_fact_is_seen() -> None:
+    # Arrange
+    tally = RetrievalTally([FACT_A])
+
+    # Act
+    tally.observe(history=[FACT_A], retrieved=[FACT_A])
+    before = tally.final_recall
+    empty = RetrievalTally([FACT_A])
+    empty.observe(history=[NOISE], retrieved=[NOISE])
+
+    # Assert
+    assert before == pytest.approx(1.0)
+    assert empty.final_recall is None
