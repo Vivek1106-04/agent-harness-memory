@@ -14,6 +14,7 @@ from harness.components.memory_vector import VectorMemory
 from harness.components.planner_react import ReActPlanner
 from harness.components.tools_local import LocalToolRuntime
 from harness.config import ComponentConfig, HarnessConfig, load_config
+from harness.gcp_auth import GoogleAdcAuth
 from harness.interfaces import MemoryProvider
 from harness.llm_http import LLMTransportError
 from harness.registry import register
@@ -209,6 +210,21 @@ def test_build_llm_refuses_when_the_named_key_is_unset(tmp_path: Path) -> None:
     # Act / Assert
     with pytest.raises(LLMTransportError, match="DEFINITELY_UNSET_HARNESS_KEY"):
         build_llm(subject, env={})
+
+
+def test_build_llm_with_google_login_authenticates_every_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange
+    sentinel = GoogleAdcAuth(credentials=object())
+    monkeypatch.setattr(GoogleAdcAuth, "from_environment", classmethod(lambda cls: sentinel))
+    subject = config(tmp_path, llm={"auth": "google_adc"})
+
+    # Act
+    client = build_llm(subject, env={})
+
+    # Assert
+    assert client._auth is sentinel
 
 
 def test_build_llm_needs_no_key_for_a_local_endpoint(tmp_path: Path) -> None:
