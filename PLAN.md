@@ -19,7 +19,7 @@ match, with everything done by **18 October**.
 | 3. CI green, five contract suites | **Done on `main`** | Local commits since PR #7 still to be pushed and merged |
 | 4. Pilot sweep, 30 x 2 x 6, error bars | **Done** | Two-fact pilot `docs/sweep-memos/pilot-table.md` (ceiling: graph - vector -0.05 [-0.12, 0.02]); chain-3 suite `docs/sweep-memos/chain3.md` breaks it: graph - vector +0.62 [0.48, 0.75] |
 | Revised cost model (section C) | **Done** | Measured on Vertex AI, 30 September |
-| External component demo (week 6) | Open | Only simulated in `tests/test_registry_entry_points.py` |
+| External component demo (week 6) | **Done** (owner: Vivek) | `external/harness-keyword-memory`, `scripts/demo_external.sh`, runbook `docs/demo-external.md` |
 | Slides, Q&A drill, README status (week 7) | Open | - |
 
 What changed on the way, all in DECISIONS.md: the model is `gemini-3.5-flash-lite` on
@@ -185,7 +185,7 @@ where the effort confound starts.
 | Muni + Jugal | `GraphMemory` + `HybridMemory` green against contract |
 | Vivek | **Pilot sweep**: 30 tasks × 2 seeds × 6 conditions = 360 runs (~12,600 calls) |
 | Vivek | Analysis: headroom recovered per condition, CIs from cluster bootstrap |
-| Ansh | External component demo — one provider in a separate package, registered without forking |
+| Vivek | External component demo — one provider in a separate package, registered without forking |
 | All | Design-decisions log written up: where each interface bent against reality |
 
 If Graph and Hybrid slip, **run the pilot with four conditions instead of six.** The pilot

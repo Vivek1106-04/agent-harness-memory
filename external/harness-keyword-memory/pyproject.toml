@@ -1,0 +1,19 @@
+[project]
+name = "harness-keyword-memory"
+version = "0.1.0"
+description = "A third-party memory provider for the harness, registered without forking it"
+authors = [{ name = "Gangavarapu Vivek", email = "gangavarapu.0104@gmail.com" }]
+requires-python = ">=3.12"
+dependencies = ["harness"]
+
+# The whole integration. The harness finds this at runtime; nothing in harness source
+# names this package or this class.
+[project.entry-points."harness.memory"]
+keyword = "harness_keyword_memory:KeywordMemory"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/harness_keyword_memory"]

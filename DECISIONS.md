@@ -611,6 +611,24 @@ under graph, hybrid and Oracle had every dropped fact returned: the model's malf
 replies at temperature 1.0 used up the four steps of slack. `docs/sweep-memos/chain3.md`.
 **Reportable?** yes - the harder suite, its offline prediction, and the declared outcomes.
 
+
+### 2026-09-30 · registry · an external provider, and two things it exposed
+**Owner:** Vivek
+**What we built:** `external/harness-keyword-memory`, a separate package whose only
+integration is one `harness.memory` entry point. Installed beside the harness it is listed
+by `available('memory')`, selected by `memory: {type: keyword}`, passes the full
+`MemoryProviderContract`, and runs a real task - with no harness source naming it.
+**What did not fit:**
+1. *The conformance suite is not installable.* It lives in `tests/contracts`, outside the
+   `harness` wheel, so a third party can only run it from a checkout of this repository.
+   SPEC calls it the public specification; as shipped, it is a repository file.
+2. *The harness shipped no `py.typed`.* A third party's `mypy --strict` saw every harness
+   type as `Any` and refused to let `KeywordMemory` subclass `MemoryProvider`.
+**What we changed:** added `src/harness/py.typed`. The suite is left where it is - moving it
+into the package touches every contract subclass and is not a pre-panel change; noted here.
+**Reportable?** yes - the substitutability claim held, and the first outside component
+found two places the "public interface" was not yet public.
+
 ---
 
 ## Open questions to resolve by the week-2 freeze
