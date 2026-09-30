@@ -1,0 +1,69 @@
+# Live component swap demo (PLAN.md, panel item 2). Run it with scripts/demo_swap.sh.
+#
+# configs/chain3_vector_2k.yaml cut to one task. The demo runs it, changes the one line
+# below - `type: vector` to `type: graph` - and runs it again. Nothing else differs, and
+# no harness source is edited: the registry resolves the new name from config.
+#
+# Task 000 is chosen because the two memories part on it in the chain-3 sweep: vector
+# does not return the fact the window lost, graph follows the link to it. Temperature 1.0
+# with the seed sent, as in the study; the seed makes the rerun repeat (checked on Vertex).
+#
+run:
+  seed: 1
+  max_steps: 25          # 19 reads + list + answer = 21, plus 4 slack: too few to re-read the corpus
+  run_id_prefix: demo
+  retrieval_k: 5
+
+# The task set, described rather than listed. Hashed into every row, so the thirty tasks
+# behind a result can be re-derived from the result.
+suite:
+  count: 1               # task 000 only: the one the demo shows
+  chain_length: 3        # three facts: two recalled, one read last
+  recall_distance: 12   # must exceed what the window still holds, or recall is not forced
+  distractor_density: 0.5
+  horizon: 20
+  seed: 1000
+  document_tokens: 220    # about 7 documents fit in 2k, so a fact 12 back has left the window
+
+planner:
+  type: react
+  max_steps: 25
+
+memory:
+  type: vector
+
+context:
+  type: budgeted        # budgeted | full
+  token_budget: 2000     # sized to the pinned model: at 8k it lost its place (week-3 memo)
+
+tools:
+  type: task_docs       # task_docs | local | mock
+  max_output_chars: 4000
+
+evaluator:
+  type: checker
+
+# Frozen across every condition. Pin the revision, not just the name.
+embedding:
+  model: Qwen/Qwen3-Embedding-0.6B
+  revision: 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3   # HF sha, verified 2026-09-27
+
+llm:
+  provider: openai_compatible
+  base_url: ${HARNESS_LLM_BASE_URL}
+  # Verified 2026-09-27: stable, 1M context. 2.5 models are closed to new keys (404).
+  model: google/gemini-3.5-flash-lite   # Vertex names publisher models google/<id>
+  revision: stable-2026-07       # hosted models have no sha; the stable code plus its date
+  auth: google_adc               # no key: the Google login, refreshed before it expires
+  # Gemini 3 counts thinking against max_output_tokens; pinned so it cannot eat the cap.
+  reasoning_effort: minimal
+  max_output_tokens: 300
+  temperature: 1.0               # sampled, so run.seed (sent as `seed`) makes replicates distinct
+  max_attempts: 6                # a per-minute 429 carries a retryDelay the client honours
+  # Paid Standard tier list prices, 2026-09-24. On the free tier the meter overstates.
+  price_input_usd_per_m: 0.30
+  price_output_usd_per_m: 2.50
+
+limits:
+  max_tokens_per_run: 500000
+  max_spend_usd: 25.0
