@@ -1,0 +1,71 @@
+# Chain-3 cell: vector memory, 2k budget, three-fact chains.
+#
+# Identical to configs/pilot_vector_2k.yaml except `suite.chain_length: 3` and `run_id_prefix`.
+# The two-fact pilot hit a ceiling - graph, hybrid and vector all reached Oracle - so it
+# could not rank them. Offline, with the scripted perfect reader, chain 3 separates them:
+# vector 4/30, graph 30/30, hybrid 30/30, Oracle 30/30, NoOp and episodic 0/30
+# (DECISIONS.md, 2026-09-30). Run all six, two seeds, into their own database:
+#
+#   uv run python -m harness sweep configs/chain3_*_2k.yaml --seeds 1 2 \
+#       --out results/chain3.db --traces results/chain3-traces
+#   uv run python -m harness report --db results/chain3.db --out docs/sweep-memos/chain3-table.md
+#
+run:
+  seed: 1
+  max_steps: 25          # 19 reads + list + answer = 21, plus 4 slack: too few to re-read the corpus
+  run_id_prefix: chain3
+  retrieval_k: 5
+
+# The task set, described rather than listed. Hashed into every row, so the thirty tasks
+# behind a result can be re-derived from the result.
+suite:
+  count: 30
+  chain_length: 3        # three facts: two recalled, one read last
+  recall_distance: 12   # must exceed what the window still holds, or recall is not forced
+  distractor_density: 0.5
+  horizon: 20
+  seed: 1000
+  document_tokens: 220    # about 7 documents fit in 2k, so a fact 12 back has left the window
+
+planner:
+  type: react
+  max_steps: 25
+
+memory:
+  type: vector
+
+context:
+  type: budgeted        # budgeted | full
+  token_budget: 2000     # sized to the pinned model: at 8k it lost its place (week-3 memo)
+
+tools:
+  type: task_docs       # task_docs | local | mock
+  max_output_chars: 4000
+
+evaluator:
+  type: checker
+
+# Frozen across every condition. Pin the revision, not just the name.
+embedding:
+  model: Qwen/Qwen3-Embedding-0.6B
+  revision: 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3   # HF sha, verified 2026-09-27
+
+llm:
+  provider: openai_compatible
+  base_url: ${HARNESS_LLM_BASE_URL}
+  # Verified 2026-09-27: stable, 1M context. 2.5 models are closed to new keys (404).
+  model: google/gemini-3.5-flash-lite   # Vertex names publisher models google/<id>
+  revision: stable-2026-07       # hosted models have no sha; the stable code plus its date
+  auth: google_adc               # no key: the Google login, refreshed before it expires
+  # Gemini 3 counts thinking against max_output_tokens; pinned so it cannot eat the cap.
+  reasoning_effort: minimal
+  max_output_tokens: 300
+  temperature: 1.0               # sampled, so run.seed (sent as `seed`) makes replicates distinct
+  max_attempts: 6                # a per-minute 429 carries a retryDelay the client honours
+  # Paid Standard tier list prices, 2026-09-24. On the free tier the meter overstates.
+  price_input_usd_per_m: 0.30
+  price_output_usd_per_m: 2.50
+
+limits:
+  max_tokens_per_run: 500000
+  max_spend_usd: 25.0

@@ -552,6 +552,60 @@ and is retried appends its second attempt to the same trace file, so six traces 
 attempts. The backfill reads the last attempt; the runner still appends, noted not fixed.
 **Reportable?** yes - both recall figures, with the reason they differ.
 
+### 2026-09-30 · evaluator · dropped-fact recall: did memory return what the window lost
+**Owner:** Vivek
+**What did not fit:** answer-step recall counts every fact read so far, including facts
+still in the window. Vector returned the evicted fact but not the one just read, and scored
+0.61 while solving 58/60. Both earlier recall figures answer questions nobody asked.
+**What we changed:** `RetrievalTally.observe_dropped` scores only facts that were read and
+are no longer in the window's non-memory text, on the last step that had any - the answer
+step when the agent answered. Stored as `retrieval_recall_dropped`, backfilled for all 540
+pilot rows by the same replay (every row reproduced). Sampled pilot: NoOp 0.00, episodic
+0.00, graph 0.95, hybrid 1.00, vector 1.00, Oracle 1.00 - the first recall figure that
+tracks success.
+**Reportable?** yes - this is the recall column to report; the other two with their caveat.
+
+### 2026-09-30 · memory · episodic is NoOp by construction under goal-text queries
+**Owner:** Vivek
+**What did not fit:** episodic scored 0/60, identical to NoOp. Replay of a pilot run: in 23
+of 24 retrievals it returned only the chunks written on the step before - newest-first,
+k=5, and one padded document is more than five chunks. That document is still in the
+window, so episodic never supplies anything the window lacks.
+**Why, and why it is not a defect in the provider:** episodic ranks by time and honours
+`time_range`; the loop queries with the goal text and never sets one, because no layer
+decides *when* to look back. The interface affords temporal retrieval; this harness never
+exercises it.
+**What we changed:** nothing in code. Episodic is reported as degenerate under this loop,
+with the mechanism, not as evidence that temporal memory fails. Making it a fair condition
+needs a planner or loop that issues time-windowed queries - a design change, out of scope
+before the panel.
+**Reportable?** yes - a finding about interface versus harness: a capability no caller uses
+is measured as absent.
+
+### 2026-09-30 · tasks · chain-3 suite to break the two-fact ceiling
+**Owner:** Vivek
+**What did not fit:** at chain length 2, graph, hybrid and vector all reached Oracle, so the
+pilot could not rank them (graph - vector -0.05 [-0.12, 0.02]). Every non-required document
+is already a same-shaped distractor, so `distractor_density` is not a lever; chain length is.
+**What we changed:** `configs/chain3_*_2k.yaml`, identical to the pilot cells except
+`chain_length: 3` and the run prefix. Graph and hybrid keep `hops: 2`, which chain 3 needs.
+Offline, scripted perfect reader, real Qwen3 encoder, 30 tasks:
+
+| chain | NoOp | episodic | vector | graph | hybrid | Oracle |
+|---|---|---|---|---|---|---|
+| 2 | 0 | 0 | 30 | 30 | 30 | 30 |
+| 3 | 0 | 0 | 4 | 30 | 30 | 30 |
+| 4 | 0 | 0 | 0 | 30 | 30 | 30 |
+
+Chain 2 offline matches the real pilot exactly. Chain 3 is the smallest change that
+separates the conditions; chain 4 adds model difficulty without adding separation.
+**Declared before the real run (30 September, before any chain-3 call):** graph - vector is
+positive and its 95% CI excludes 0; NoOp and episodic stay at 0; Oracle stays at or above
+80% - if it falls below, the three-part concatenation is too hard for the model and the
+chain-3 comparison measures the model, not memory. Equivalence margin for a graph-vs-hybrid
+tie: 10pp, from the pilot's measured precision (week-3 memo, question 4).
+**Reportable?** yes - the harder suite, its offline prediction, and the declared outcomes.
+
 ---
 
 ## Open questions to resolve by the week-2 freeze
