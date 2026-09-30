@@ -15,7 +15,7 @@ match, with everything done by **18 October**.
 | Panel item | State | Evidence |
 |---|---|---|
 | 1. Bracket, measured | **Done** | NoOp 0/60, Oracle 56/60; width 93.3pp [86.7, 98.3] (`docs/sweep-memos/week3.md`) |
-| 2. Live component swap | **Done, rehearsed twice** | `scripts/demo_swap.sh` (~90 s), runbook `docs/demo-swap.md`, offline fallback `--replay`; rehearse again on the presenting laptop |
+| 2. Live component swap | **Done, rehearsed twice** | `scripts/demo_swap.sh` (~90 s), runbook `docs/demo-swap.md`, offline fallback `--replay`; both demos rehearsed on the presenting laptop |
 | 3. CI green, five contract suites | **Done on `main`** | Local commits since PR #7 still to be pushed and merged |
 | 4. Pilot sweep, 30 x 2 x 6, error bars | **Done** | Two-fact pilot `docs/sweep-memos/pilot-table.md` (ceiling: graph - vector -0.05 [-0.12, 0.02]); chain-3 suite `docs/sweep-memos/chain3.md` breaks it: graph - vector +0.62 [0.48, 0.75] |
 | Revised cost model (section C) | **Done** | Measured on Vertex AI, 30 September |

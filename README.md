@@ -16,7 +16,7 @@ actually matters — which is what the study measures.
 
 | | What | Assessed by |
 |---|---|---|
-| **A — Engineering** | Five-layer harness where every layer meets the same bar: frozen payload contract, abstract interface, ≥2 implementations, conformance suite, config-registry entry, trace emission, named owner | Its own conformance suites — independent of B's outcome |
+| **A — Engineering** | Five-layer harness where every layer meets the same bar: frozen payload contract, abstract interface, ≥2 implementations, conformance suite, config-registry entry, trace emission | Its own conformance suites — independent of B's outcome |
 | **B — Research** | Experiment 1 (does representation matter?) and Experiment 2 (at what context budget does it stop mattering?) | The measured result, including a null |
 
 ---
@@ -66,85 +66,80 @@ set -a; source .env; set +a                      # the harness reads the environ
 
 ---
 
-## Layer ownership
+## Layers
 
-Every layer has exactly one owner, accountable for all seven conditions on it.
+Every layer meets the same bar: frozen payload contract, abstract interface, at least two
+implementations, a conformance suite, a registry entry and trace emission.
 
-| Layer | Implementations | Owner |
-|---|---|---|
-| Spine (types, ABCs, runtime loop, trace bus, registry) | — | Ansh |
-| Planner | `ReActPlanner` · `SingleStepPlanner` | Ansh |
-| Context manager | `BudgetedContextManager` · `FullContextManager` | Muni |
-| Memory A | `VectorMemory` · `EpisodicMemory` | Ansh + Vivek |
-| Memory B | `GraphMemory` · `HybridMemory` | Muni + Jugal |
-| Memory instruments | `NoOpMemory` · `OracleMemory` | Vivek |
-| Environment | task generator, gold labels, runner, results store, stats | Vivek |
-| Tool runtime | `LocalToolRuntime` · `MockToolRuntime` | Vivek |
-| Evaluator | `CheckerEvaluator` · `AlwaysFailEvaluator` | Jugal |
+| Layer | Implementations |
+|---|---|
+| Spine (types, ABCs, runtime loop, trace bus, registry) | - |
+| Planner | `ReActPlanner` · `SingleStepPlanner` |
+| Context manager | `BudgetedContextManager` · `FullContextManager` |
+| Memory | `VectorMemory` · `EpisodicMemory` · `GraphMemory` · `HybridMemory` |
+| Memory instruments | `NoOpMemory` · `OracleMemory` |
+| Environment | task generator, gold labels, runner, results store, statistics |
+| Tool runtime | `TaskDocumentRuntime` · `LocalToolRuntime` · `MockToolRuntime` |
+| Evaluator | `CheckerEvaluator` · `AlwaysFailEvaluator` |
+| Outside the harness | `external/harness-keyword-memory`, registered by entry point only |
 
-Memory implementations are built in **pairs who review each other's code**. That is the
-cheapest available control on the effort confound — the most serious threat in the study.
+The repository is one continuous history, from the frozen interfaces through every layer,
+experiment and memo; `git log` shows how each piece arrived and why, and DECISIONS.md
+records every place the design bent against reality.
 
 ---
 
-## Status
+## Status - 30 September 2026
 
-Week 2 spine in place: payload types, five interfaces, registry with entry-point discovery,
-all five conformance suites, one trivial implementation each for planner, context, tools and
-evaluator, config schema with hashing, trace bus with redaction, SQLite results store and a
-resumable runner.
+**Harness complete.** All five layers with at least two implementations each, every one
+passing its conformance suite; 567 tests, 100% coverage on `src/harness/`, mypy strict.
+Six memory conditions registered. A seventh, `keyword`, lives in a separate package and is
+selected by config through an entry point, with no harness source naming it.
 
-Week 3 instruments in place: task generator v1 (`multihop_qa`, a pure function of the spec,
-emitting the task, its checker and its per-step gold labels), the forces-recall assertion,
-`NoOpMemory` and `OracleMemory`, `BudgetedContextManager`, the task-document tool runtime,
-a minimal `CheckerEvaluator`, and the runtime loop that runs one task through all five
-layers.
+**Model.** `gemini-3.5-flash-lite` on Vertex AI (project `btp-vivek`, education credits),
+`reasoning_effort: minimal`, temperature 1.0 with the run seed sent, so replicates are real
+samples. Qwen3-Embedding-0.6B at sha `97b0c61`. Budget 2k tokens, documents padded to 220
+tokens: about seven fit, so a fact read twelve documents earlier has left the window.
 
-Week 4 in place: `ReActPlanner` (pulled forward, since the week-3 gate needed it),
-`HttpLLMClient` for hosted and local vLLM endpoints alike, `LocalToolRuntime` against a
-real sandboxed filesystem, the first two memory providers under test (`VectorMemory` with
-exact cosine, `EpisodicMemory` with time-windowed retrieval), task suites as a pure
-function of the config, and a resumable CLI. 383 tests, 100% coverage on `src/harness/`.
+**Results.** Every sweep has a memo in [docs/sweep-memos/](docs/sweep-memos/); predictions
+were written down before the paid runs that tested them.
 
-Running it, in this order (the key lives in `.env`, never in a config file):
+| Sweep | Runs | Headline |
+|---|---|---|
+| Week-3 bracket | 60 | NoOp 0/60, Oracle 56/60: width 93.3pp [86.7, 98.3] |
+| Two-fact pilot, 6 conditions x 2 seeds | 360 | Ceiling: graph, hybrid, vector all reach Oracle; graph - vector -0.05 [-0.12, 0.02] |
+| Chain-3 suite, 6 conditions x 2 seeds | 360 | Ceiling broken: graph - vector **+0.62 [0.48, 0.75]**; hybrid 0.80, Oracle 0.82 |
+
+Retrieval is reported as dropped-fact recall - did memory return what the window lost -
+the one recall figure that tracks success (DECISIONS.md, 2026-09-30). Episodic memory is
+NoOp by construction under goal-text queries; that is a finding about the loop, not about
+temporal memory.
+
+**Cost.** ~$17.50 for 905 runs, about $0.02 a run, measured per row from the endpoint's
+own usage report. Experiment 1 is ~$30; Experiment 2 is estimated at ~$345 and needs a
+decision before it runs ([PLAN.md](PLAN.md), section C).
+
+**Demos.** Both rehearsed on the presenting laptop:
 
 ```bash
-set -a; source .env; set +a
-# 1. one task, oracle, own database - proves the real path end to end
-uv run python -m harness run configs/smoke.yaml --out results/smoke.db --traces results/smoke-traces
-# 2. the bracket (week-3 gate)
-uv run python -m harness sweep configs/week3_bracket_noop.yaml configs/week3_bracket_oracle.yaml
-# 3. the pilot: 6 conditions x 2 seeds; bracket rows for seed 1 are reused
-uv run python -m harness sweep configs/week3_bracket_noop.yaml configs/week3_bracket_oracle.yaml \
-    configs/pilot_*_2k.yaml --seeds 1 2
-uv run python -m harness report --out docs/sweep-memos/pilot-table.md
+export HARNESS_LLM_BASE_URL=https://aiplatform.googleapis.com/v1/projects/btp-vivek/locations/global/endpoints/openapi
+scripts/demo_swap.sh              # one config line, vector -> graph, ~90 s  (--replay offline)
+scripts/demo_external.sh --live   # outside package, discovered and run, ~40 s
 ```
 
-Pinned: `gemini-3.5-flash-lite` with `reasoning_effort: minimal`, Qwen3-Embedding-0.6B at
-sha `97b0c61`. `limits.max_spend_usd` or a spent daily quota stops the sweep (exit 2);
-rerunning the same command resumes. The free tier allows 500 requests a day - about 24
-runs - so the bracket takes about 3 days and the pilot about 15; a paid key finishes the
-pilot in hours for about $5.
+Runbooks: [docs/demo-swap.md](docs/demo-swap.md), [docs/demo-external.md](docs/demo-external.md).
 
-The week-3 gate is **not yet answered at n=30**: everything is pinned, and single-task real
-runs of every condition have been checked by hand (week-3 memo). Questions, method and decision rules were
-recorded in [docs/sweep-memos/week3.md](docs/sweep-memos/week3.md) before any data was
-seen, and the answers go in the same file the day the bracket runs.
+**Reproducing a sweep** (Vertex needs `gcloud auth application-default login` once):
 
-Week 5 in place: `GraphMemory` (networkx, entity anchors, hop-bounded traversal) and
-`HybridMemory` (cosine + graph fused by reciprocal rank), both passing the memory contract,
-so all six conditions are registered. Retrieval precision/recall is scored per run against
-the gold facts. `python -m harness sweep` runs several configs under several seeds and
-`python -m harness report` produces the pilot table: success and headroom recovered with
-cluster-bootstrap CIs over tasks, forces-recall screen applied, graph-vs-vector paired.
+```bash
+uv run python -m harness sweep configs/chain3_*_2k.yaml --seeds 1 2 \
+    --out results/chain3.db --traces results/chain3-traces
+uv run python -m harness report --db results/chain3.db
+```
 
-The pilot runs at `token_budget: 2000` with documents padded to `document_tokens: 220`:
-about seven documents fit, so a fact read twelve documents earlier has left the window.
-At 8k with 900-token documents the pinned model lost its place and even the ceiling
-failed; the full chain of findings from the first real runs is in DECISIONS.md
-(2026-09-27) and the week-3 memo. `TaskSpec.document_tokens` (payload 1.1) is the one
-payload change this needed.
+Raw results and traces are not in git. They are archived outside the repository as
+`results-backup-<date>.tar.gz` with a SHA-256 manifest.
 
-Not yet implemented: the `mock_fs` / `repo_edit` task families (after the panel).
-
-`PLAN.md` is the schedule; the next hard gate is **code freeze for the panel**.
+**Next.** Panel on 21 October. After it, Experiment 1 on the chain-3 suite (80 tasks x 3
+seeds), then the week-12 go/no-go, then Experiment 2. Not yet implemented: the `mock_fs` /
+`repo_edit` task families.
