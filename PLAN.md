@@ -272,9 +272,10 @@ higher price.
 
 **What it means.**
 
-- **Experiment 1 fits the credits** with room for a rerun: ~$30 against ~$60 left across
-  both accounts. Confirm the balance of the account linked to `btp-vivek` in the Billing
-  console; the second account must be linked to a project before it can be spent.
+- **Experiment 1 fits, barely, on the linked account.** `btp-vivek` bills the $50 education
+  account (confirmed 30 September); ~$17.50 is spent, leaving ~$32.50 against Experiment 1's
+  ~$30 - no room for a rerun. The $28 account is untouched but must be linked to a project
+  before it can be spent; link it before Experiment 1 starts, giving ~$60 in all.
 - **Experiment 2 does not fit the credits.** ~$345 exceeds the $300 approved budget on its
   own. Levers, in order: (1) Vertex batch prediction, listed at about half the on-demand
   price - verify before relying on it; (2) cap the uncapped cell at 32k, which removes half
