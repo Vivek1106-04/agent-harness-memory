@@ -18,6 +18,7 @@ def _row(
     precision: float | None = None,
     recall: float | None = None,
     final: float | None = None,
+    dropped: float | None = None,
 ) -> RunResult:
     return RunResult(
         run_id=f"p:{condition}:{budget}:{task}:s{seed}",
@@ -41,6 +42,7 @@ def _row(
         retrieval_precision=precision,
         retrieval_recall=recall,
         retrieval_recall_final=final,
+        retrieval_recall_dropped=dropped,
     )
 
 
@@ -201,6 +203,21 @@ def test_final_recall_averages_only_the_runs_that_define_it() -> None:
     assert summary.retrieval_recall_final == pytest.approx(0.75)
 
 
+def test_dropped_recall_averages_only_the_runs_that_define_it() -> None:
+    # Arrange
+    rows = [
+        _row("vector", "t0", True, dropped=1.0),
+        _row("vector", "t1", True, dropped=0.0),
+        _row("vector", "t2", True, dropped=None),
+    ]
+
+    # Act
+    summary = analyse(rows, resamples=50).conditions[0]
+
+    # Assert
+    assert summary.retrieval_recall_dropped == pytest.approx(0.5)
+
+
 def test_rows_from_two_budgets_are_refused() -> None:
     rows = [_row("graph", "t0", True, budget=4000), _row("graph", "t0", True, budget=8000)]
     with pytest.raises(AnalysisError, match="one token budget"):
@@ -229,7 +246,7 @@ def test_render_marks_the_pilot_preliminary_and_lists_every_condition() -> None:
 
 def test_render_shows_a_dash_for_undefined_values() -> None:
     rows = [_row("episodic", "t0", True), _row("episodic", "t1", False)]
-    assert "| - | 100 | 10 | - | - | - |" in render(analyse(rows, resamples=50))
+    assert "| - | 100 | 10 | - | - | - | - |" in render(analyse(rows, resamples=50))
 
 
 def test_interval_on_all_undefined_draws_is_nan() -> None:

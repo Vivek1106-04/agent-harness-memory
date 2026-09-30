@@ -544,7 +544,7 @@ needs, and it penalises exactly the retrieval-by-link behaviour graph memory exi
 **What we changed:** `RetrievalTally.final_recall` - recall on the last scored step, which
 is the answer step whenever the agent answered - stored as `retrieval_recall_final` and
 reported beside the step average, not instead of it. Existing databases gain the column on
-open. Rows recorded before it were backfilled by `scripts/rescore_final_recall.py`, which
+open. Rows recorded before it were backfilled by `scripts/rescore_recall.py`, which
 replays each trace's recorded actions through the real loop with no model call and writes
 a row only when the replay reproduces its stored recall, steps and success exactly.
 **What it cost:** nothing re-run. Found on the way: a cell that fails on a transport error

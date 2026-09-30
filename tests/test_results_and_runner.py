@@ -78,7 +78,11 @@ def test_a_database_from_before_a_column_existed_gains_it_on_open(tmp_path: Path
     # Arrange
     path = tmp_path / "old.db"
     old = sqlite3.connect(path)
-    old.executescript(SCHEMA.replace("    retrieval_recall_final REAL,\n", ""))
+    old.executescript(
+        SCHEMA.replace("    retrieval_recall_final REAL,\n", "").replace(
+            "    retrieval_recall_dropped REAL,\n", ""
+        )
+    )
     old.execute(
         "INSERT INTO runs (run_id, task_id, condition, token_budget, seed, success, score, "
         "tokens_read, tokens_write, steps, wall_ms, config_hash, git_commit, payload_version, "
@@ -95,6 +99,7 @@ def test_a_database_from_before_a_column_existed_gains_it_on_open(tmp_path: Path
 
     # Assert
     assert kept is not None and kept.retrieval_recall_final is None
+    assert kept.retrieval_recall_dropped is None
     assert store.get(_result().run_id).retrieval_recall_final == 0.5  # type: ignore[union-attr]
     store.close()
 

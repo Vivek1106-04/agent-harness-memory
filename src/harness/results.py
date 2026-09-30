@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS runs (
     retrieval_precision REAL,
     retrieval_recall   REAL,
     retrieval_recall_final REAL,
+    retrieval_recall_dropped REAL,
     cost_usd           REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS runs_by_condition ON runs (condition, task_id);
@@ -45,7 +46,10 @@ CREATE INDEX IF NOT EXISTS runs_by_condition ON runs (condition, task_id);
 
 #: Columns added after databases already existed. `CREATE TABLE IF NOT EXISTS` leaves an old
 #: table as it was, so each is added on open when missing. Nullable, so old rows read None.
-ADDED_COLUMNS: tuple[tuple[str, str], ...] = (("retrieval_recall_final", "REAL"),)
+ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("retrieval_recall_final", "REAL"),
+    ("retrieval_recall_dropped", "REAL"),
+)
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,7 @@ class RunResult:
     retrieval_recall: float | None = None
     cost_usd: float = 0.0
     retrieval_recall_final: float | None = None
+    retrieval_recall_dropped: float | None = None
 
 
 class ResultsStore:

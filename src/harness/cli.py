@@ -198,6 +198,7 @@ def _row(
         retrieval_precision=outcome.retrieval_precision,
         retrieval_recall=outcome.retrieval_recall,
         retrieval_recall_final=outcome.retrieval_recall_final,
+        retrieval_recall_dropped=outcome.retrieval_recall_dropped,
         cost_usd=cost_usd,
     )
 

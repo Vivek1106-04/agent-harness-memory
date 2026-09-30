@@ -1,4 +1,5 @@
-"""Backfill `retrieval_recall_final` for runs recorded before the column existed.
+"""Backfill `retrieval_recall_final` and `retrieval_recall_dropped` for runs recorded
+before those columns existed.
 
 Each run is replayed through the real loop: the planner is replaced by one that returns the
 actions recorded in the run's trace, so the tools produce the same observations, the memory
@@ -9,8 +10,8 @@ A row is updated only when the replay reproduces the stored `retrieval_recall`, 
 `success`. A mismatch means the replay is not the run that was recorded, and its final
 recall would be a number about some other run, so the row is left alone and reported.
 
-    uv run python scripts/rescore_final_recall.py results/runs.db results/traces
-    uv run python scripts/rescore_final_recall.py results/pilot-t1.db \
+    uv run python scripts/rescore_recall.py results/runs.db results/traces
+    uv run python scripts/rescore_recall.py results/pilot-t1.db \
         results/pilot-t1-traces --write
 """
 
@@ -143,8 +144,9 @@ def main() -> int:
         matched += 1
         if args.write:
             connection.execute(
-                "UPDATE runs SET retrieval_recall_final = ? WHERE run_id = ?",
-                (outcome.retrieval_recall_final, row["run_id"]),
+                "UPDATE runs SET retrieval_recall_final = ?, retrieval_recall_dropped = ? "
+                "WHERE run_id = ?",
+                (outcome.retrieval_recall_final, outcome.retrieval_recall_dropped, row["run_id"]),
             )
     connection.commit()
     connection.close()
