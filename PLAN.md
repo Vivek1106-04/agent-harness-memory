@@ -1,13 +1,33 @@
 # PLAN — week by week, layer by layer
 
-**Today:** 10 September 2026 · **Next panel review:** 26–28 October 2026 · **Thesis deadline:** 16 weeks
+**Written:** 10 September 2026 · **Updated:** 30 September 2026 · **Panel review:** Wednesday 21 October 2026 (everything done by Sunday 18 October) · **Thesis deadline:** 16 weeks
 
 Two horizons in this file. §A is the run to the October panel (6½ weeks). §B is the rest of
 the thesis. Do not read §B until §A is delivered.
 
 ---
 
-## What we are showing on 26 October
+## Status, 30 September
+
+The panel moved from 26–28 October to **21 October**; the schedule below is compressed to
+match, with everything done by **18 October**.
+
+| Panel item | State | Evidence |
+|---|---|---|
+| 1. Bracket, measured | **Done** | NoOp 0/60, Oracle 56/60; width 93.3pp [86.7, 98.3] (`docs/sweep-memos/week3.md`) |
+| 2. Live component swap | **Done, rehearsed twice** | `scripts/demo_swap.sh` (~90 s), runbook `docs/demo-swap.md`, offline fallback `--replay`; rehearse again on the presenting laptop |
+| 3. CI green, five contract suites | **Done on `main`** | Local commits since PR #7 still to be pushed and merged |
+| 4. Pilot sweep, 30 x 2 x 6, error bars | **Done** | Two-fact pilot `docs/sweep-memos/pilot-table.md` (ceiling: graph - vector -0.05 [-0.12, 0.02]); chain-3 suite `docs/sweep-memos/chain3.md` breaks it: graph - vector +0.62 [0.48, 0.75] |
+| Revised cost model (section C) | **Done** | Measured on Vertex AI, 30 September |
+| External component demo (week 6) | **Done** (owner: Vivek) | `external/harness-keyword-memory`, `scripts/demo_external.sh`, runbook `docs/demo-external.md` |
+| Slides, Q&A drill, README status (week 7) | Open | - |
+
+What changed on the way, all in DECISIONS.md: the model is `gemini-3.5-flash-lite` on
+Vertex AI, paid from education credits rather than DeepSeek; the pilot runs at a 2k budget
+with 220-token documents; replicates are sampled (temperature 1.0, seed sent); retrieval is
+reported as dropped-fact recall; episodic memory is NoOp by construction under this loop.
+
+## What we are showing on 21 October
 
 **We are not showing Experiment 1.** Its 1,440 runs sit in weeks 8–12 and no honest
 compression gets us there. Claiming otherwise and missing is worse than scoping honestly.
@@ -30,7 +50,7 @@ evidence that we are actually running this.
 
 ---
 
-# §A — The run to 26 October
+# §A — The run to 21 October
 
 ## Week 1 · 10–16 Sep · Foundations
 
@@ -137,7 +157,7 @@ measurement.
 
 ---
 
-## Week 5 · 8–14 Oct · Memory A
+## Week 5 · Memory A · delivered early, 27 September
 
 | Owner | Deliverable |
 |---|---|
@@ -156,16 +176,16 @@ where the effort confound starts.
 
 ---
 
-## Week 6 · 15–21 Oct · Memory B and the pilot
+## Week 6 · Memory B and the pilot · delivered 27–30 September
 
-### 🚩 GATE — code freeze for the panel, 21 October
+### 🚩 GATE — code freeze for the panel, 14 October
 
 | Owner | Deliverable |
 |---|---|
 | Muni + Jugal | `GraphMemory` + `HybridMemory` green against contract |
 | Vivek | **Pilot sweep**: 30 tasks × 2 seeds × 6 conditions = 360 runs (~12,600 calls) |
 | Vivek | Analysis: headroom recovered per condition, CIs from cluster bootstrap |
-| Ansh | External component demo — one provider in a separate package, registered without forking |
+| Vivek | External component demo — one provider in a separate package, registered without forking |
 | All | Design-decisions log written up: where each interface bent against reality |
 
 If Graph and Hybrid slip, **run the pilot with four conditions instead of six.** The pilot
@@ -174,7 +194,7 @@ implementation take the demo down with it.
 
 ---
 
-## Week 7 · 22–25 Oct · Rehearsal
+## Week 7 · 15–18 Oct · Rehearsal
 
 | Owner | Deliverable |
 |---|---|
@@ -183,7 +203,7 @@ implementation take the demo down with it.
 | All | Q&A drill — every question in the talking-points doc, out loud |
 | Ansh | Repo tidy: README status updated, no stale TODOs, CI green on `main` |
 
-**Panel: 26–28 October.**
+**Panel: Wednesday 21 October.** Nothing new lands after 18 October.
 
 ---
 
@@ -203,38 +223,65 @@ scope honest.
 
 ---
 
-# §C — Cost, revised
+# §C — Cost, revised (30 September, measured)
 
-DeepSeek repriced on 16 August 2026 and now bills peak/off-peak. The proposal's numbers are
-stale.
+**What changed.** The proposal priced DeepSeek; DeepSeek then repriced (16 August) and the
+estimate rose from $59 to ~$158. Neither number applies any more: the study runs on
+`gemini-3.5-flash-lite` on **Vertex AI**, paid from two Google Cloud education credit
+accounts (about $50 and $28). AI Studio would not spend those credits without a prepaid
+account; Vertex bills them directly (PR #6). The free tier (500 requests a day) could not
+carry even the pilot.
 
-| | Proposal assumed | Actual, off-peak | Peak |
+**Price.** Vertex list price for gemini-3.5-flash-lite: **$0.30/M input, $2.50/M output**,
+thinking billed as output; cached input $0.03/M. These are the prices every config meters
+with, so the harness's recorded spend is the bill, not an estimate of it.
+
+**Measured, not modelled.** Every row records its own cost from the endpoint's usage block:
+
+| Run | Runs | Spend | Per run |
 |---|---|---|---|
-| Input | $0.435/M | **$0.66/M** | $1.32/M |
-| Output | $0.87/M | **$1.98/M** | $3.96/M |
-| Cached input | $0.004/M | **$0.022/M** | $0.044/M |
+| Smoke (Vertex) | 1 | $0.02 | $0.017 |
+| Bracket + pilot, temperature 0, seed 1 | 180 | $3.35 | $0.019 |
+| Bracket + pilot, temperature 1.0, 2 seeds | 360 | $6.86 | $0.019 |
+| Chain-3 suite, 2 seeds | 360 | $7.22 | $0.020 |
+| Swap-demo rehearsals | 4 | ~$0.09 | ~$0.02 |
+| **Total to date** | **905** | **~$17.50** | |
 
-Against 1.88B input / 59M output:
+About 35k input and 4.5k written tokens per run at the 2k budget; a run that fails costs
+more than one that succeeds (NoOp $0.022 vs Oracle $0.017) because it uses all 25 steps.
+Roughly $0.011 of a run is input and $0.008 output.
 
-| Scenario | Off-peak | Peak |
-|---|---|---|
-| Cached | **~$158** | ~$316 |
-| Uncached | ~$1,358 | ~$2,715 |
+**Projection.**
 
-The $59 estimate becomes ~$158 — still inside the $300 approved, but the margin is gone.
-**Output is not cacheable**, and $117 of that total is irreducible output cost.
+| Work | Runs | Per run | Cost |
+|---|---|---|---|
+| Experiment 1 (6 x 80 tasks x 3 seeds, 2k budget, chain 3) | 1,440 | ~$0.021 | **~$30** |
+| Experiment 2, 4k | 384 | ~$0.036 | ~$14 |
+| Experiment 2, 8k | 384 | ~$0.064 | ~$25 |
+| Experiment 2, 16k | 384 | ~$0.12 | ~$46 |
+| Experiment 2, 32k | 384 | ~$0.23 | ~$88 |
+| Experiment 2, uncapped (taken as 64k) | 384 | ~$0.45 | ~$173 |
+| **Experiment 2 total** | 1,920 | | **~$345** |
 
-Three levers, in order of preference:
+Experiment 2 is priced at 23 steps x the budget in input tokens, plus the measured $0.008
+of output, with no caching - an upper bound. It also assumes documents scaled so each
+budget actually binds: with 220-token documents the whole corpus fits in about 6k, so every
+cell above 8k would be the same experiment (DECISIONS.md, 2026-09-27). And flash-lite lost
+its place at 8k in the first real runs, so Experiment 2 may need a stronger model at a
+higher price.
 
-1. **Run off-peak only.** Peak is 01:00–04:00 and 06:00–10:00 UTC = **06:30–09:30 and
-   11:30–15:30 IST**. Simply not launching sweeps in those windows halves the bill.
-2. **Cap output at 300 tokens/step**, not 500. A ReAct rationale plus an action JSON fits.
-   Takes output cost from $117 to ~$69.
-3. Reduce seeds. Last resort — it costs statistical power, which we have little of.
+**What it means.**
 
-**Preferred path: local weights on institute GPU, free API tiers for development, $300 held
-as the fallback for the final clean sweep.** That is also a stronger reproducibility story
-than a hosted endpoint, since the proposal already requires pinned open weights.
+- **Experiment 1 fits, barely, on the linked account.** `btp-vivek` bills the $50 education
+  account (confirmed 30 September); ~$17.50 is spent, leaving ~$32.50 against Experiment 1's
+  ~$30 - no room for a rerun. The $28 account is untouched but must be linked to a project
+  before it can be spent; link it before Experiment 1 starts, giving ~$60 in all.
+- **Experiment 2 does not fit the credits.** ~$345 exceeds the $300 approved budget on its
+  own. Levers, in order: (1) Vertex batch prediction, listed at about half the on-demand
+  price - verify before relying on it; (2) cap the uncapped cell at 32k, which removes half
+  the cost; (3) the institute GPU with pinned open weights, which also makes the
+  reproducibility story stronger; (4) fewer seeds, last, because it costs power.
+- The approved $300 is untouched so far.
 
 ---
 

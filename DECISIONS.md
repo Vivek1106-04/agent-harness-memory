@@ -532,6 +532,103 @@ ids do not carry the config hash, so a shared database would skip every sampled 
 already done. The week-3 answers must be re-read on the sampled bracket.
 **Reportable?** yes - methodology: replicates are real samples, not repeated greedy decodes.
 
+### 2026-09-30 · evaluator · final-step retrieval recall alongside the step average
+**Owner:** Vivek
+**What did not fit:** the temperature-0 pilot scored graph 28/30 on success and 0.07 on
+retrieval recall. Replay of task 001 showed why: recall is averaged over every step after
+the first required fact is read, and a graph cannot link that fact to the goal's entity
+until the document naming both is read - thirteen steps later. Every step in between
+scores 0; the step the answer was given on scores 1.0. The average measures "does memory
+surface a fact before anything marks it relevant", which is not what a multi-hop answer
+needs, and it penalises exactly the retrieval-by-link behaviour graph memory exists for.
+**What we changed:** `RetrievalTally.final_recall` - recall on the last scored step, which
+is the answer step whenever the agent answered - stored as `retrieval_recall_final` and
+reported beside the step average, not instead of it. Existing databases gain the column on
+open. Rows recorded before it were backfilled by `scripts/rescore_recall.py`, which
+replays each trace's recorded actions through the real loop with no model call and writes
+a row only when the replay reproduces its stored recall, steps and success exactly.
+**What it cost:** nothing re-run. Found on the way: a cell that fails on a transport error
+and is retried appends its second attempt to the same trace file, so six traces hold two
+attempts. The backfill reads the last attempt; the runner still appends, noted not fixed.
+**Reportable?** yes - both recall figures, with the reason they differ.
+
+### 2026-09-30 · evaluator · dropped-fact recall: did memory return what the window lost
+**Owner:** Vivek
+**What did not fit:** answer-step recall counts every fact read so far, including facts
+still in the window. Vector returned the evicted fact but not the one just read, and scored
+0.61 while solving 58/60. Both earlier recall figures answer questions nobody asked.
+**What we changed:** `RetrievalTally.observe_dropped` scores only facts that were read and
+are no longer in the window's non-memory text, on the last step that had any - the answer
+step when the agent answered. Stored as `retrieval_recall_dropped`, backfilled for all 540
+pilot rows by the same replay (every row reproduced). Sampled pilot: NoOp 0.00, episodic
+0.00, graph 0.95, hybrid 1.00, vector 1.00, Oracle 1.00 - the first recall figure that
+tracks success.
+**Reportable?** yes - this is the recall column to report; the other two with their caveat.
+
+### 2026-09-30 · memory · episodic is NoOp by construction under goal-text queries
+**Owner:** Vivek
+**What did not fit:** episodic scored 0/60, identical to NoOp. Replay of a pilot run: in 23
+of 24 retrievals it returned only the chunks written on the step before - newest-first,
+k=5, and one padded document is more than five chunks. That document is still in the
+window, so episodic never supplies anything the window lacks.
+**Why, and why it is not a defect in the provider:** episodic ranks by time and honours
+`time_range`; the loop queries with the goal text and never sets one, because no layer
+decides *when* to look back. The interface affords temporal retrieval; this harness never
+exercises it.
+**What we changed:** nothing in code. Episodic is reported as degenerate under this loop,
+with the mechanism, not as evidence that temporal memory fails. Making it a fair condition
+needs a planner or loop that issues time-windowed queries - a design change, out of scope
+before the panel.
+**Reportable?** yes - a finding about interface versus harness: a capability no caller uses
+is measured as absent.
+
+### 2026-09-30 · tasks · chain-3 suite to break the two-fact ceiling
+**Owner:** Vivek
+**What did not fit:** at chain length 2, graph, hybrid and vector all reached Oracle, so the
+pilot could not rank them (graph - vector -0.05 [-0.12, 0.02]). Every non-required document
+is already a same-shaped distractor, so `distractor_density` is not a lever; chain length is.
+**What we changed:** `configs/chain3_*_2k.yaml`, identical to the pilot cells except
+`chain_length: 3` and the run prefix. Graph and hybrid keep `hops: 2`, which chain 3 needs.
+Offline, scripted perfect reader, real Qwen3 encoder, 30 tasks:
+
+| chain | NoOp | episodic | vector | graph | hybrid | Oracle |
+|---|---|---|---|---|---|---|
+| 2 | 0 | 0 | 30 | 30 | 30 | 30 |
+| 3 | 0 | 0 | 4 | 30 | 30 | 30 |
+| 4 | 0 | 0 | 0 | 30 | 30 | 30 |
+
+Chain 2 offline matches the real pilot exactly. Chain 3 is the smallest change that
+separates the conditions; chain 4 adds model difficulty without adding separation.
+**Declared before the real run (30 September, before any chain-3 call):** graph - vector is
+positive and its 95% CI excludes 0; NoOp and episodic stay at 0; Oracle stays at or above
+80% - if it falls below, the three-part concatenation is too hard for the model and the
+chain-3 comparison measures the model, not memory. Equivalence margin for a graph-vs-hybrid
+tie: 10pp, from the pilot's measured precision (week-3 memo, question 4).
+**Outcome (30 September, 360 runs, $7.22):** graph - vector +0.62 [0.48, 0.75], holds;
+NoOp and episodic 0/60, holds; Oracle 0.82 [0.72, 0.92], point estimate holds; graph -
+hybrid tie within 10pp **not shown** (hybrid - graph +0.15 [-0.02, 0.30]). Most failures
+under graph, hybrid and Oracle had every dropped fact returned: the model's malformed
+replies at temperature 1.0 used up the four steps of slack. `docs/sweep-memos/chain3.md`.
+**Reportable?** yes - the harder suite, its offline prediction, and the declared outcomes.
+
+
+### 2026-09-30 · registry · an external provider, and two things it exposed
+**Owner:** Vivek
+**What we built:** `external/harness-keyword-memory`, a separate package whose only
+integration is one `harness.memory` entry point. Installed beside the harness it is listed
+by `available('memory')`, selected by `memory: {type: keyword}`, passes the full
+`MemoryProviderContract`, and runs a real task - with no harness source naming it.
+**What did not fit:**
+1. *The conformance suite is not installable.* It lives in `tests/contracts`, outside the
+   `harness` wheel, so a third party can only run it from a checkout of this repository.
+   SPEC calls it the public specification; as shipped, it is a repository file.
+2. *The harness shipped no `py.typed`.* A third party's `mypy --strict` saw every harness
+   type as `Any` and refused to let `KeywordMemory` subclass `MemoryProvider`.
+**What we changed:** added `src/harness/py.typed`. The suite is left where it is - moving it
+into the package touches every contract subclass and is not a pre-panel change; noted here.
+**Reportable?** yes - the substitutability claim held, and the first outside component
+found two places the "public interface" was not yet public.
+
 ---
 
 ## Open questions to resolve by the week-2 freeze

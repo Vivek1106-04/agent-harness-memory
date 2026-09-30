@@ -1,0 +1,24 @@
+# Recorded rehearsal, 30 September 2026, Vertex AI google/gemini-3.5-flash-lite, task suitefbceb0ec-000.
+# Two consecutive live runs produced this output identically. Shown by scripts/demo_swap.sh --replay.
+
+The only difference between the two runs:
+33c33
+<   type: vector
+---
+>   type: graph
+
+=== vector ===
+condition=vector executed=1 skipped=0 failed=0
+  memory      : vector
+  steps       : 25
+  answer      : (none)
+  verdict     : FAIL - no answer observation in the trace
+  memory gave : doc_05.txt, doc_07.txt, doc_10.txt, doc_13.txt, doc_15.txt
+
+=== graph ===
+condition=graph executed=1 skipped=0 failed=0
+  memory      : graph
+  steps       : 22
+  answer      : 50141015
+  verdict     : SUCCESS - answer matches the generated task answer
+  memory gave : list_dir, doc_05.txt, doc_06.txt, doc_18.txt

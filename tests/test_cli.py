@@ -14,7 +14,15 @@ from typing import Any
 
 import pytest
 
-from harness.cli import EXIT_ABORTED, RunPaths, main, run_config, run_sweep, suite_spec
+from harness.cli import (
+    EXIT_ABORTED,
+    RunPaths,
+    _set_aside_failed_attempt,
+    main,
+    run_config,
+    run_sweep,
+    suite_spec,
+)
 from harness.config import HarnessConfig, load_config
 from harness.llm_http import SpendLimitError
 from harness.results import ResultsStore
@@ -245,6 +253,28 @@ def test_a_run_id_with_colons_becomes_a_usable_trace_filename(tmp_path: Path) ->
     assert ":" not in written[0].name
 
 
+def test_a_retried_run_sets_its_failed_attempt_aside(tmp_path: Path) -> None:
+    """A run that failed mid-way left a partial trace. The retry's trace must be the run the
+    row describes, and the failed attempt is kept beside it rather than lost or mixed in."""
+    # Arrange
+    config = load_config(write_config(tmp_path, suite={**SUITE, "count": 1}, run={"max_steps": 6}))
+    paths = _paths(tmp_path)
+    paths.traces.mkdir(parents=True)
+    run_config(config, paths, llm=FakeLLMClient(["{}"]))
+    (trace,) = paths.traces.glob("*.jsonl")
+    partial = trace.read_text().splitlines()[0] + "\n"
+    trace.write_text(partial)
+    paths.results.unlink()
+
+    # Act
+    run_config(config, paths, llm=FakeLLMClient(["{}"]))
+
+    # Assert
+    headers = [line for line in trace.read_text().splitlines() if '"kind": "header"' in line]
+    assert len(headers) == 1
+    assert trace.with_name(trace.stem + ".failed-1.jsonl").read_text() == partial
+
+
 def test_a_second_run_seed_is_a_new_replicate_not_a_duplicate(tmp_path: Path) -> None:
     """Replicates differ only in `run.seed`. Keying rows on the task seed skipped them."""
     # Arrange
@@ -448,3 +478,19 @@ def test_the_failure_streak_spans_every_config_of_a_sweep(tmp_path: Path) -> Non
 
     # Assert
     assert code == EXIT_ABORTED
+
+
+def test_a_second_failed_attempt_does_not_overwrite_the_first(tmp_path: Path) -> None:
+    # Arrange
+    trace = tmp_path / "run.jsonl"
+    trace.write_text("first\n")
+    _set_aside_failed_attempt(trace)
+    trace.write_text("second\n")
+
+    # Act
+    _set_aside_failed_attempt(trace)
+
+    # Assert
+    assert (tmp_path / "run.failed-1.jsonl").read_text() == "first\n"
+    assert (tmp_path / "run.failed-2.jsonl").read_text() == "second\n"
+    assert not trace.exists()

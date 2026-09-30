@@ -154,7 +154,9 @@ def _execute(
 ) -> RunResult:
     provenance = build_provenance(item.run_id, config)
     spent_before = llm.spent_usd
-    sink = JsonlTraceSink(paths.traces / f"{_safe_name(item.run_id)}.jsonl")
+    trace = paths.traces / f"{_safe_name(item.run_id)}.jsonl"
+    _set_aside_failed_attempt(trace)
+    sink = JsonlTraceSink(trace)
     try:
         bus = TraceBus(item.run_id, sink)
         bus.emit_header(provenance)
@@ -195,6 +197,8 @@ def _row(
         embedding_revision=provenance.embedding_revision,
         retrieval_precision=outcome.retrieval_precision,
         retrieval_recall=outcome.retrieval_recall,
+        retrieval_recall_final=outcome.retrieval_recall_final,
+        retrieval_recall_dropped=outcome.retrieval_recall_dropped,
         cost_usd=cost_usd,
     )
 
@@ -244,6 +248,18 @@ def suite_spec(config: HarnessConfig) -> SuiteSpec:
         horizon=config.suite.horizon,
         document_tokens=config.suite.document_tokens,
     )
+
+
+def _set_aside_failed_attempt(trace: Path) -> None:
+    """A run is only executed when it has no row, so a trace already on disk is a failed
+    attempt. Appending to it would put two attempts in one file under one row; it is kept
+    beside the new trace as `<run>.failed-N.jsonl` instead."""
+    if not trace.exists():
+        return
+    attempt = 1
+    while (aside := trace.with_name(f"{trace.stem}.failed-{attempt}.jsonl")).exists():
+        attempt += 1
+    trace.rename(aside)
 
 
 def _safe_name(run_id: str) -> str:

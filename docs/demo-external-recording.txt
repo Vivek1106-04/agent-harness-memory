@@ -1,0 +1,23 @@
+# Recorded run, 30 September 2026: scripts/demo_external.sh --live, Vertex AI google/gemini-3.5-flash-lite.
+
+
+=== 1. Harness source never names the new component ===
+grep -ri keyword src/harness configs -> no match
+
+=== 2. Its whole integration is one entry point in its own pyproject.toml ===
+[project.entry-points."harness.memory"]
+keyword = "harness_keyword_memory:KeywordMemory"
+
+=== 3. Install it next to the harness ===
+memory providers: ['episodic', 'graph', 'hybrid', 'keyword', 'noop', 'oracle', 'vector']
+
+=== 4. It passes the harness's own memory contract suite ===
+9 passed in 0.01s
+
+=== 5. One real task with memory: {type: keyword} ===
+condition=keyword executed=1 skipped=0 failed=0
+  memory      : keyword
+  steps       : 25
+  answer      : (none)
+  verdict     : FAIL - no answer observation in the trace
+  memory gave : doc_12.txt, doc_13.txt, doc_14.txt, doc_15.txt, doc_16.txt

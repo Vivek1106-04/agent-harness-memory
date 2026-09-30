@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from harness.chunking import chunk_text
 from harness.interfaces import ContextManager, Evaluator, MemoryProvider, Planner, ToolRuntime
 from harness.retrieval_metrics import RetrievalTally
+from harness.segments import ROLE_MEMORY
 from harness.tasks.generator import ANSWER_TOOL, GeneratedTask
 from harness.tokens import approx_token_count
 from harness.trace import TraceBus
@@ -61,6 +62,8 @@ class LoopOutcome:
     #: None when never defined: the agent read no required fact, or memory returned nothing.
     retrieval_precision: float | None = None
     retrieval_recall: float | None = None
+    retrieval_recall_final: float | None = None
+    retrieval_recall_dropped: float | None = None
 
 
 class AgentLoop:
@@ -110,6 +113,11 @@ class AgentLoop:
             retrieved = self._retrieve(task.goal, step)
             tally.observe([o.content for o in history], [item.content for item in retrieved])
             window = self._context.assemble(task.goal, history, retrieved)
+            tally.observe_dropped(
+                [o.content for o in history],
+                [text for role, text in window.segments if role != ROLE_MEMORY],
+                [item.content for item in retrieved],
+            )
             tokens_read += window.token_count
             self._bus.emit(
                 LAYER_CONTEXT,
@@ -161,6 +169,8 @@ class AgentLoop:
             stop_reason=stop_reason,
             retrieval_precision=tally.precision,
             retrieval_recall=tally.recall,
+            retrieval_recall_final=tally.final_recall,
+            retrieval_recall_dropped=tally.dropped_recall,
         )
 
     def _over_token_limit(self, spent: int) -> bool:

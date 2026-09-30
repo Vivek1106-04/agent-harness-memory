@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import contextlib
+import sqlite3
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from harness.results import ResultsStore, RunResult
+from harness.results import SCHEMA, ResultsStore, RunResult
 from harness.runner import Runner, RunPlanItem, SweepAbortedError, build_run_id
 
 
@@ -55,6 +57,50 @@ def test_recorded_result_round_trips(tmp_path: Path) -> None:
     # Assert
     assert inserted is True
     assert store.get(_result().run_id) == _result()
+    store.close()
+
+
+def test_final_recall_round_trips(tmp_path: Path) -> None:
+    # Arrange
+    store = ResultsStore(tmp_path / "results.db")
+    result = replace(_result(), retrieval_recall_final=0.75)
+
+    # Act
+    store.record(result)
+
+    # Assert
+    assert store.get(result.run_id) == result
+    store.close()
+
+
+def test_a_database_from_before_a_column_existed_gains_it_on_open(tmp_path: Path) -> None:
+    """The pilot databases predate final recall; opening them must not lose their rows."""
+    # Arrange
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript(
+        SCHEMA.replace("    retrieval_recall_final REAL,\n", "").replace(
+            "    retrieval_recall_dropped REAL,\n", ""
+        )
+    )
+    old.execute(
+        "INSERT INTO runs (run_id, task_id, condition, token_budget, seed, success, score, "
+        "tokens_read, tokens_write, steps, wall_ms, config_hash, git_commit, payload_version, "
+        "model_id, model_revision, embedding_model, embedding_revision) VALUES "
+        "('r', 't', 'c', 1, 1, 1, 1.0, 1, 1, 1, 1.0, 'h', 'g', 'p', 'm', 'mr', 'e', 'er')"
+    )
+    old.commit()
+    old.close()
+
+    # Act
+    store = ResultsStore(path)
+    kept = store.get("r")
+    store.record(replace(_result(), retrieval_recall_final=0.5))
+
+    # Assert
+    assert kept is not None and kept.retrieval_recall_final is None
+    assert kept.retrieval_recall_dropped is None
+    assert store.get(_result().run_id).retrieval_recall_final == 0.5  # type: ignore[union-attr]
     store.close()
 
 
