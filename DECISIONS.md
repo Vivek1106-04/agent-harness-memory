@@ -604,6 +604,11 @@ positive and its 95% CI excludes 0; NoOp and episodic stay at 0; Oracle stays at
 80% - if it falls below, the three-part concatenation is too hard for the model and the
 chain-3 comparison measures the model, not memory. Equivalence margin for a graph-vs-hybrid
 tie: 10pp, from the pilot's measured precision (week-3 memo, question 4).
+**Outcome (30 September, 360 runs, $7.22):** graph - vector +0.62 [0.48, 0.75], holds;
+NoOp and episodic 0/60, holds; Oracle 0.82 [0.72, 0.92], point estimate holds; graph -
+hybrid tie within 10pp **not shown** (hybrid - graph +0.15 [-0.02, 0.30]). Most failures
+under graph, hybrid and Oracle had every dropped fact returned: the model's malformed
+replies at temperature 1.0 used up the four steps of slack. `docs/sweep-memos/chain3.md`.
 **Reportable?** yes - the harder suite, its offline prediction, and the declared outcomes.
 
 ---
